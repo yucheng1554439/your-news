@@ -1,8 +1,7 @@
 import "server-only";
 
-import { mkdir, readFile, writeFile } from "fs/promises";
-import path from "path";
 import { createHash } from "crypto";
+import { createMemoryStore } from "@/lib/cache/memory-store";
 import { deriveKeySignal } from "@/lib/briefing/key-signal";
 import { getCategoryLabel } from "@/lib/data/categories";
 import { computeUserRelevanceScore } from "@/lib/personalization/engine";
@@ -20,9 +19,18 @@ export type WeeklyBriefing = {
   mode: WeeklyBriefingMode;
 };
 
-const CACHE_DIR = path.join(process.cwd(), ".cache", "weekly-briefing");
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const OPENAI_API = "https://api.openai.com/v1/chat/completions";
+
+type BriefingCacheEntry = {
+  generatedAt: string;
+  briefing: WeeklyBriefing;
+};
+
+const briefingStore = createMemoryStore<BriefingCacheEntry>({
+  ttlMs: CACHE_TTL_MS,
+  maxEntries: 80,
+});
 
 function getWeekRangeLabel(): string {
   const now = new Date();
@@ -58,34 +66,16 @@ function briefingCacheKey(
   return `${mode}-${profilePart}-${createHash("sha256").update(slugs).digest("hex").slice(0, 16)}`;
 }
 
-async function readBriefingCache(
-  key: string
-): Promise<WeeklyBriefing | null> {
-  try {
-    const raw = await readFile(path.join(CACHE_DIR, `${key}.json`), "utf-8");
-    const entry = JSON.parse(raw) as {
-      generatedAt: string;
-      briefing: WeeklyBriefing;
-    };
-    if (Date.now() - new Date(entry.generatedAt).getTime() > CACHE_TTL_MS) {
-      return null;
-    }
-    return entry.briefing;
-  } catch {
-    return null;
-  }
+function readBriefingCache(key: string): WeeklyBriefing | null {
+  const entry = briefingStore.get(key);
+  return entry?.briefing ?? null;
 }
 
-async function writeBriefingCache(
-  key: string,
-  briefing: WeeklyBriefing
-): Promise<void> {
-  await mkdir(CACHE_DIR, { recursive: true });
-  await writeFile(
-    path.join(CACHE_DIR, `${key}.json`),
-    JSON.stringify({ generatedAt: new Date().toISOString(), briefing }, null, 2),
-    "utf-8"
-  );
+function writeBriefingCache(key: string, briefing: WeeklyBriefing): void {
+  briefingStore.set(key, {
+    generatedAt: new Date().toISOString(),
+    briefing,
+  });
 }
 
 function selectStoriesForMode(
@@ -250,13 +240,13 @@ export async function resolveWeeklyBriefing(
   const selected = selectStoriesForMode(stories, mode, profile);
   const cacheKey = briefingCacheKey(mode, profile, selected);
 
-  const cached = await readBriefingCache(cacheKey);
+  const cached = readBriefingCache(cacheKey);
   if (cached) return cached;
 
   const ai = await buildAIBriefing(stories, mode, profile);
   const briefing =
     ai ?? buildSyncBriefing(stories, mode, profile);
 
-  await writeBriefingCache(cacheKey, briefing);
+  writeBriefingCache(cacheKey, briefing);
   return briefing;
 }

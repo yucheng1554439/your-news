@@ -1,0 +1,13 @@
+{
+  "fingerprint": "The U.S. threatens to revoke the Palestinian U.N. ambassador's visa - NPR|2026-05-21T03:52:20.000Z",
+  "generatedAt": "2026-05-22T06:58:42.327Z",
+  "package": {
+    "theBriefing": "NPR reports a developing geopolitics story: A leaked State Department memo shows the U.S. threatened to revoke Palestinian visas if they pushed for a senior United Nations post.",
+    "whyItMatters": "Beyond the headline, this geopolitics thread may influence policy expectations, capital allocation, and how institutions hedge uncertainty over the coming weeks. Watch whether follow-on reporting confirms a trend or a one-day narrative.",
+    "whyItMattersToYou": "For your engineering lens, this geopolitics item matters if it changes build-vs-buy calculus, vendor risk, or the pace of automation in your stack. Fit this into your weekly scan unless it escalates.",
+    "perspectives": "Operators, investors, and policymakers will read the same facts with different urgency — the split is usually between those who must act this quarter and those who can wait for confirmation.",
+    "sourceLens": "NPR is one datapoint; compare wire services and trade press before treating framing as consensus.",
+    "generatedAt": "2026-05-22T06:58:42.326Z",
+    "profileFingerprint": "123313a6eac399c0"
+  }
+}
