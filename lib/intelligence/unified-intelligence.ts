@@ -25,7 +25,7 @@ export async function generateUnifiedIntelligence(
       "You brief a colleague in plain English. Facts first, cautious implications second. No finance jargon, macro fanfiction, or pretend certainty.",
     user: buildUnifiedIntelligencePrompt(story, profile),
     temperature: personalized ? 0.32 : 0.28,
-    maxTokens: 900,
+    maxTokens: 720,
     responseFormat: "tags",
     parse: (content) =>
       parseStoryIntelligenceResponse(content, profileFingerprint),

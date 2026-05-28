@@ -3,43 +3,44 @@
  */
 
 import {
+  CONFIDENCE_CALIBRATION,
   GROUNDED_REASONING,
   OPERATOR_TONE,
 } from "@/lib/intelligence/writing-guardrails";
 
 export const WEEKLY_ADVISOR_RULES = `${OPERATOR_TONE}
-- Weekly: one narrative lane only. Explain what moved, what it may mean if it continues, and what evidence to watch next.`;
+- Weekly: one narrative lane only. Homepage copy — short and scannable, not a report.`;
 
 export const WRITING_RULES = `Writing standard:
 ${GROUNDED_REASONING}
+${CONFIDENCE_CALIBRATION}
 ${OPERATOR_TONE}
 - Use specifics from the source (names, numbers, actions, dates).
 - Do not label categories ("technology dominated") — describe what changed.
-- Banned jargon/theatrics: repricing, risk assets, demand-side dimension, long-duration growth compression, dominant shift, through-line, signal vs noise, game-changer, private desk, landscape, documentary filler, "institutions will rebalance before the narrative settles".
-- Light hedging is encouraged when evidence is incomplete ("may", "if reports hold", "watch for").
+- Banned jargon/theatrics: repricing, risk assets, demand-side dimension, dominant shift, through-line, game-changer, private desk, "will inevitably", "certain to".
 - Use only facts from provided material.`;
 
 export const STORY_SECTIONS = {
   theBriefing: {
     purpose: "What happened?",
-    task: "2–3 sentences. Who did what, when. Facts only — no implications here.",
+    task: "2 sentences max. Who did what, when. Facts only — no implications.",
   },
   whyItMatters: {
     purpose: "Why might this matter?",
-    task: "2–3 sentences. One plausible consequence mechanism (markets, policy, supply, competition) tied to facts in the article. No drama, no unsupported macro chains.",
+    task: "2 sentences max. One plausible consequence tied to the article. Label inference if needed (may/could).",
   },
   whyItMattersToYou: {
     purpose: "How might this affect THIS reader?",
-    task: "2–3 sentences. Practical relevance for their role. One concrete thing to check. Do not repeat whyItMatters.",
+    task: "2 sentences max. Practical relevance for their role. One check to run. Do not repeat whyItMatters.",
   },
 } as const;
 
 export const WEEKLY_GLOBAL = {
-  purpose: "What is the main development in this narrative this week?",
-  task: "One clear judgment grounded in the stories: what happened, what may change if it continues, and what to verify next. Not macro theater or a headline survey.",
+  purpose: "What mattered in the world this week (this narrative)?",
+  task: "World judgment only: what happened, who was affected, what may follow if it continues, what to verify. Not personal career advice.",
 } as const;
 
 export const WEEKLY_FOR_YOU = {
-  purpose: "What should THIS reader pay attention to in this narrative?",
-  task: "One personalized judgment: the highest-signal fact and a practical implication for their decisions. Name a watch item — not a list of stories.",
+  purpose: "What developments matter most to THIS reader this week?",
+  task: "Multi-narrative personal briefing: synthesize ALL provided threads through career, interests, focus, and tone. State what affects their decisions, plausible implications (may/could), and watch items. Must differ fundamentally from Global.",
 } as const;

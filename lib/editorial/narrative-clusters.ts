@@ -27,7 +27,7 @@ const THEME_RULES: ThemeRule[] = [
   {
     theme: "ai-capex",
     pattern:
-      /\b(ai infrastructure|data center|hyperscaler|training cluster|cloud capex|power for ai)\b/i,
+      /\b(ai infrastructure|data center|hyperscaler|training cluster|cloud capex|power for ai|enterprise software|saas spending|it budget|developer tools|startup funding|venture capital|tech layoff)\b/i,
   },
   {
     theme: "hyperscaler-cloud",

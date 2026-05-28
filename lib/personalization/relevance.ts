@@ -44,7 +44,7 @@ const CAREER_SEMANTIC_TAGS: Record<
     "cybersecurity",
   ],
   investor: ["markets", "investing", "semiconductors", "energy", "policy"],
-  founder: ["startups", "enterprise-ai", "markets", "policy"],
+  founder: ["startups", "enterprise-ai", "cloud-infrastructure", "ai-infrastructure", "policy"],
   executive: ["geopolitics", "policy", "markets", "energy"],
   researcher: ["science", "ai-infrastructure", "policy", "energy"],
 };
@@ -54,8 +54,8 @@ const CAREER_THEME_AFFINITY: Record<
   string[]
 > = {
   engineer: ["nvidia-semis", "ai-capex", "hyperscaler-cloud", "big-tech-ai"],
-  investor: ["fed-rates", "nvidia-semis", "geopolitics-conflict", "energy-commodities"],
-  founder: ["big-tech-ai", "policy-regulation", "fed-rates"],
+  investor: ["fed-rates", "banking-financial", "nvidia-semis", "geopolitics-conflict"],
+  founder: ["big-tech-ai", "ai-capex", "hyperscaler-cloud", "policy-regulation"],
   executive: ["geopolitics-conflict", "policy-regulation", "fed-rates"],
   researcher: ["policy-regulation", "ai-capex", "energy-commodities"],
 };

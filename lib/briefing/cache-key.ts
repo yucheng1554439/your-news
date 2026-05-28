@@ -19,5 +19,5 @@ export function weeklyBriefingCacheKey(
   const profileFingerprint = getProfileBriefingFingerprint(profile);
   const modelToken = getModelCacheToken();
 
-  return `cluster-v12-grounded:${modelToken}:${mode}:${profileFingerprint}:${clusterHash}`;
+  return `cluster-v14-multi:${modelToken}:${mode}:${profileFingerprint}:${clusterHash}`;
 }

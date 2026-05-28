@@ -9,11 +9,19 @@ const BANNED_PHRASE =
 const ABSTRACT_CHAIN =
   /\b(cascade|contagion|regime\s+shift|structural\s+inflection|paradigm)\b/gi;
 
+const OVERCERTAIN =
+  /\b(will inevitably|certain to|already decided|guaranteed to|no doubt that|set in stone)\b/gi;
+
 export const GROUNDED_REASONING = `Grounded reasoning:
 - Order: what happened (from the source) → one plausible implication → what to watch or verify.
 - Connect dots only when the article supports the link. Use "likely", "if confirmed", or "unclear yet" when evidence is thin.
 - Prefer plain verbs (raised, cut, delayed, reported, sued) over finance jargon (repriced, compressed, dimension, lane).
 - One clear idea per sentence. Shorter beats clever.`;
+
+export const CONFIDENCE_CALIBRATION = `Confidence calibration:
+- Sentence 1 = facts from sources. Sentence 2+ = implications (prefix with may/could/likely if not confirmed).
+- Separate what is known vs uncertain. No "will inevitably", "certain to", or "already decided" unless the source states it.
+- Risks are possibilities, not predictions.`;
 
 export const OPERATOR_TONE = `Operator briefing tone:
 - Sound like a trusted colleague — clear, calm, sharp, practical.
@@ -28,6 +36,8 @@ export function violatesGroundedTone(text: string): boolean {
   if (BANNED_PHRASE.test(t)) return true;
   const abstractHits = (t.match(ABSTRACT_CHAIN) ?? []).length;
   if (abstractHits >= 2) return true;
+  OVERCERTAIN.lastIndex = 0;
+  if (OVERCERTAIN.test(t)) return true;
   return false;
 }
 

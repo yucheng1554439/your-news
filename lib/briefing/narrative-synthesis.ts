@@ -6,31 +6,28 @@ import {
 } from "@/lib/editorial/narrative-clusters";
 import { scoreWeeklyNarrativeWeight } from "@/lib/editorial/weekly-narrative";
 import { getStrategicSignal } from "@/lib/signal/strategic-score";
-import {
-  rankStoriesForUser,
-  rankStoriesGlobal,
-} from "@/lib/personalization/engine";
+import { rankStoriesGlobal } from "@/lib/personalization/engine";
 import type { OnboardingProfile, Story } from "@/lib/types";
-import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
 
-const MAX_SYNTHESIS_STORIES = 8;
+const MAX_GLOBAL_STORIES = 6;
 
-const THEME_PRIORITY: Record<NarrativeTheme, number> = {
-  "fed-rates": 10,
-  "geopolitics-conflict": 9.5,
-  "energy-commodities": 9,
-  "nvidia-semis": 8.8,
-  "ai-capex": 8.8,
-  "hyperscaler-cloud": 8.5,
-  "policy-regulation": 8.2,
-  "banking-financial": 7.8,
-  "big-tech-ai": 8,
-  "cyber-breach": 7.5,
-  "humanitarian-social": 2.5,
+/** World-importance weights — balanced across macro, tech, policy, enterprise. */
+const GLOBAL_THEME_PRIORITY: Record<NarrativeTheme, number> = {
+  "geopolitics-conflict": 9.4,
+  "fed-rates": 8.6,
+  "energy-commodities": 8.8,
+  "ai-capex": 9.2,
+  "nvidia-semis": 9,
+  "hyperscaler-cloud": 8.8,
+  "big-tech-ai": 8.6,
+  "policy-regulation": 8.5,
+  "banking-financial": 8.2,
+  "cyber-breach": 7.8,
+  "humanitarian-social": 3,
   general: 2,
 };
 
-const THEME_LABELS: Record<NarrativeTheme, string> = {
+export const THEME_LABELS: Record<NarrativeTheme, string> = {
   "nvidia-semis": "semiconductors & AI chips",
   "ai-capex": "AI infrastructure & enterprise spending",
   "hyperscaler-cloud": "hyperscaler cloud & capex",
@@ -45,60 +42,17 @@ const THEME_LABELS: Record<NarrativeTheme, string> = {
   general: "general developments",
 };
 
-export type WeeklyNarrativeSelection = {
+export type GlobalWeeklyNarrative = {
   clusterId: string;
   theme: NarrativeTheme;
   narrativeLabel: string;
   stories: Story[];
-  clusterScore: number;
 };
 
-function rankPool(
-  stories: Story[],
-  mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
-): Story[] {
-  if (mode === "for-you" && profile?.completed) {
-    return rankStoriesForUser(stories, profile).filter(
-      (s) => scoreWeeklyNarrativeWeight(s, profile) >= 2.6
-    );
-  }
-  return rankStoriesGlobal(stories).filter(
-    (s) => scoreWeeklyNarrativeWeight(s, profile) >= 2.6
-  );
-}
-
-function careerThemeBoost(
-  theme: NarrativeTheme,
-  profile: OnboardingProfile | null
-): number {
-  if (!profile?.career) return 0;
-  const boosts: Record<
-    NonNullable<OnboardingProfile["career"]>,
-    NarrativeTheme[]
-  > = {
-    investor: [
-      "fed-rates",
-      "banking-financial",
-      "energy-commodities",
-      "geopolitics-conflict",
-      "nvidia-semis",
-    ],
-    engineer: ["ai-capex", "nvidia-semis", "hyperscaler-cloud", "big-tech-ai", "cyber-breach"],
-    founder: ["ai-capex", "big-tech-ai", "fed-rates", "policy-regulation"],
-    executive: ["geopolitics-conflict", "fed-rates", "policy-regulation", "energy-commodities"],
-    researcher: ["policy-regulation", "fed-rates", "big-tech-ai", "energy-commodities"],
-  };
-  return boosts[profile.career]?.includes(theme) ? 2 : 0;
-}
-
-function scoreCluster(
-  cluster: NarrativeCluster,
-  profile: OnboardingProfile | null
-): number {
-  const themeBase = THEME_PRIORITY[cluster.theme] ?? 2;
+function scoreGlobalCluster(cluster: NarrativeCluster): number {
+  const themeBase = GLOBAL_THEME_PRIORITY[cluster.theme] ?? 2;
   const weights = cluster.stories.map((s) =>
-    scoreWeeklyNarrativeWeight(s, profile)
+    scoreWeeklyNarrativeWeight(s, null)
   );
   const avgWeight =
     weights.reduce((a, b) => a + b, 0) / Math.max(1, weights.length);
@@ -109,37 +63,23 @@ function scoreCluster(
   return (
     themeBase * 1.4 +
     avgWeight * 0.85 +
-    maxStrategic * 6 +
+    maxStrategic * 5.5 +
     cluster.corroborationScore * 5 +
-    cluster.size * 0.6 +
-    cluster.tier1Count * 1.8 +
-    careerThemeBoost(cluster.theme, profile)
+    cluster.size * 0.55 +
+    cluster.tier1Count * 2.2
   );
 }
 
-function pickSynthesisStories(
-  cluster: NarrativeCluster,
-  profile: OnboardingProfile | null
-): Story[] {
-  return [...cluster.stories]
-    .sort(
-      (a, b) =>
-        scoreWeeklyNarrativeWeight(b, profile) -
-        scoreWeeklyNarrativeWeight(a, profile)
-    )
-    .slice(0, MAX_SYNTHESIS_STORIES);
-}
-
 /**
- * Select ONE coherent narrative cluster for weekly synthesis.
- * Never mixes unrelated themes (e.g. enterprise AI + food aid + banking).
+ * Global weekly: ONE dominant world narrative cluster.
  */
-export function selectWeeklyNarrativeForSynthesis(
+export function selectGlobalWeeklyNarrative(
   stories: Story[],
-  mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
-): WeeklyNarrativeSelection {
-  const pool = rankPool(stories, mode, profile);
+  _profile: OnboardingProfile | null
+): GlobalWeeklyNarrative {
+  const pool = rankStoriesGlobal(stories).filter(
+    (s) => scoreWeeklyNarrativeWeight(s, null) >= 2.6
+  );
   const clusters = buildNarrativeClusters(pool);
 
   if (clusters.length === 0) {
@@ -148,29 +88,46 @@ export function selectWeeklyNarrativeForSynthesis(
       ? detectNarrativeTheme(fallback)
       : ("general" as NarrativeTheme);
     return {
-      clusterId: "fallback",
+      clusterId: "global:fallback",
       theme,
       narrativeLabel: THEME_LABELS[theme],
-      stories: pool.slice(0, MAX_SYNTHESIS_STORIES),
-      clusterScore: 0,
+      stories: pool.slice(0, MAX_GLOBAL_STORIES),
     };
   }
 
-  const scored = clusters
-    .map((cluster) => ({
-      cluster,
-      score: scoreCluster(cluster, profile),
-    }))
-    .sort((a, b) => b.score - a.score);
+  const primary = [...clusters]
+    .map((cluster) => ({ cluster, score: scoreGlobalCluster(cluster) }))
+    .sort((a, b) => b.score - a.score)[0]!.cluster;
 
-  const primary = scored[0]!.cluster;
-  const synthesisStories = pickSynthesisStories(primary, profile);
+  const synthesisStories = [...primary.stories]
+    .sort(
+      (a, b) =>
+        scoreWeeklyNarrativeWeight(b, null) -
+        scoreWeeklyNarrativeWeight(a, null)
+    )
+    .slice(0, MAX_GLOBAL_STORIES);
 
   return {
-    clusterId: primary.id,
+    clusterId: `global:${primary.id}`,
     theme: primary.theme,
     narrativeLabel: THEME_LABELS[primary.theme] ?? primary.theme,
     stories: synthesisStories,
-    clusterScore: scored[0]!.score,
+  };
+}
+
+/** @deprecated Use selectWeeklyBriefingSelection */
+export function selectWeeklyNarrativeForSynthesis(
+  stories: Story[],
+  mode: "for-you" | "global",
+  profile: OnboardingProfile | null
+) {
+  const global = selectGlobalWeeklyNarrative(stories, profile);
+  return {
+    clusterId: mode === "global" ? global.clusterId : `legacy:${global.clusterId}`,
+    theme: global.theme,
+    narrativeLabel: global.narrativeLabel,
+    stories: global.stories,
+    clusterScore: 0,
+    mode,
   };
 }

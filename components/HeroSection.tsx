@@ -93,7 +93,7 @@ export function HeroSection({
             animationKey={`${animationKey}-summary`}
             text={briefing.summary}
             animate={!isRefreshing}
-            className="max-w-2xl text-sm leading-relaxed text-zinc-300 sm:text-[15px] sm:leading-7"
+            className="max-w-2xl whitespace-pre-line text-sm leading-relaxed text-zinc-300 sm:text-[15px] sm:leading-6"
           />
           {briefing.keySignal ? (
             <AnimatedEditorialText

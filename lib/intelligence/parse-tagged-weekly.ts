@@ -109,7 +109,10 @@ function finalizeBriefing(input: {
   }
 
   headline = sanitizeGroundedProse(headline);
-  summary = normalizeWeeklySummary(sanitizeGroundedProse(summary));
+  summary = normalizeWeeklySummary(
+    sanitizeGroundedProse(summary),
+    input.mode
+  );
 
   if (!keySignal || keySignal.length < 12) {
     keySignal = deriveKeySignal(input.selected);

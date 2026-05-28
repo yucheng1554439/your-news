@@ -26,7 +26,16 @@ const STRATEGIC_POLICY_GEO =
   /\b(congress|senate|white house|regulation|sanction|tariff|nato|ukraine|china|taiwan|war\b|missile|election|ballot|supreme court|g7|un security|diplomat|ceasefire|invasion)\b/i;
 
 const STRATEGIC_AI_TECH =
-  /\b(openai|anthropic|nvidia|tsmc|data center|hyperscaler|llm|frontier model|chip export|semiconductor|cloud capex|ai infrastructure|training cluster)\b/i;
+  /\b(openai|anthropic|nvidia|tsmc|data center|hyperscaler|llm|frontier model|chip export|semiconductor|cloud capex|ai infrastructure|training cluster|gpu\b|hbm\b)\b/i;
+
+const STRATEGIC_ENTERPRISE =
+  /\b(enterprise software|saas\b|b2b software|cloud spending|it budget|servicenow|workday|salesforce|developer tools|devtools|startup funding|venture capital|series [a-e]\b|semiconductor equipment)\b/i;
+
+const STRATEGIC_LABOR =
+  /\b(layoff|job cuts|hiring freeze|tech hiring|workforce|labor market|union\b|wage growth|headcount)\b/i;
+
+const STRATEGIC_REGULATION =
+  /\b(antitrust|fda\b|eu commission|export control|chip act|ai regulation|data privacy law)\b/i;
 
 const STRATEGIC_ENERGY =
   /\b(opec|crude oil|natural gas|lng\b|power grid|renewable|nuclear plant|pipeline|electricity price)\b/i;
@@ -104,16 +113,28 @@ export function assessStrategicSignal(story: Story): StrategicAssessment {
   let strategic = CATEGORY_FLOOR[story.category] ?? 0.24;
 
   if (STRATEGIC_MARKET.test(blob)) {
-    strategic += 0.28;
+    strategic += 0.22;
     reasons.push("markets/capital");
   }
   if (STRATEGIC_POLICY_GEO.test(blob)) {
-    strategic += 0.28;
+    strategic += 0.24;
     reasons.push("policy/geopolitics");
   }
   if (STRATEGIC_AI_TECH.test(blob)) {
-    strategic += 0.22;
+    strategic += 0.26;
     reasons.push("ai/tech infrastructure");
+  }
+  if (STRATEGIC_ENTERPRISE.test(blob)) {
+    strategic += 0.24;
+    reasons.push("enterprise/startup capital");
+  }
+  if (STRATEGIC_LABOR.test(blob)) {
+    strategic += 0.18;
+    reasons.push("labor/hiring");
+  }
+  if (STRATEGIC_REGULATION.test(blob)) {
+    strategic += 0.2;
+    reasons.push("regulation");
   }
   if (STRATEGIC_ENERGY.test(blob)) {
     strategic += 0.22;

@@ -3,7 +3,10 @@ import {
   deriveFallbackSummary,
 } from "@/lib/briefing/format-weekly";
 import { deriveKeySignal } from "@/lib/briefing/key-signal";
-import { selectWeeklyNarrativeForSynthesis } from "@/lib/briefing/narrative-synthesis";
+import {
+  allStoriesFromSelection,
+  selectWeeklyBriefingSelection,
+} from "@/lib/briefing/weekly-selection";
 import type { WeeklyBriefing, WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
@@ -14,11 +17,8 @@ export function buildWeeklyBriefingSync(
   mode: WeeklyBriefingMode,
   profile: OnboardingProfile | null
 ): WeeklyBriefing {
-  const { stories: pool } = selectWeeklyNarrativeForSynthesis(
-    stories,
-    mode,
-    profile
-  );
+  const selection = selectWeeklyBriefingSelection(stories, mode, profile);
+  const pool = allStoriesFromSelection(selection);
 
   const now = new Date();
   const weekAgo = new Date(now);
@@ -29,8 +29,8 @@ export function buildWeeklyBriefingSync(
   return {
     mode,
     weekLabel: `${fmt(weekAgo)} – ${fmt(now)}`,
-    headline: deriveFallbackHeadline(pool, mode, profile),
-    summary: deriveFallbackSummary(pool, mode, profile),
+    headline: deriveFallbackHeadline(pool, mode, profile, selection),
+    summary: deriveFallbackSummary(pool, mode, profile, selection),
     keySignal: deriveKeySignal(pool),
     generatedBy: "fallback",
   };

@@ -1,84 +1,114 @@
 import "server-only";
 
 import { truncateForModel } from "@/lib/extraction/clean";
-import type { WeeklyNarrativeSelection } from "@/lib/briefing/narrative-synthesis";
+import type { WeeklyBriefingSelection } from "@/lib/briefing/weekly-selection";
 import {
   WEEKLY_FOR_YOU,
   WEEKLY_GLOBAL,
   WEEKLY_ADVISOR_RULES,
   WRITING_RULES,
 } from "@/lib/intelligence/section-purposes";
-import { buildReaderNote, canPersonalize } from "@/lib/personalization/context";
+import { buildWeeklyModeFrame } from "@/lib/personalization/weekly-frame";
 import type { OnboardingProfile, Story } from "@/lib/types";
 import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
 
 function buildStoryDigest(stories: Story[]): string {
-  const bodies = stories
+  return stories
     .map((s, i) => {
       const material = s.articleBody?.trim() || s.rawExcerpt?.trim() || s.summary;
       const source = s.articleBodySource ?? "excerpt";
-      const text = truncateForModel(material, 2200);
-      return `--- ${i + 1}. ${s.headline} (${s.source}) · ${source} ---
+      const text = truncateForModel(material, 1400);
+      return `  ${i + 1}. ${s.headline} (${s.source})
 ${text}`;
     })
     .join("\n\n");
-
-  return bodies;
 }
 
-const FOR_YOU_HEADLINE_RULES = `HEADLINE rules (For You):
-- ONE plain insight for THIS reader about THIS narrative only.
-- 6–12 words, max 88 characters. Title case. No semicolons.
-- State the development or decision point — not abstract macro labels.`;
+function buildGlobalDigest(selection: WeeklyBriefingSelection): string {
+  const thread = selection.threads[0]!;
+  return `WORLD NARRATIVE: ${thread.label}
+${buildStoryDigest(thread.stories)}`;
+}
 
-const GLOBAL_HEADLINE_RULES = `HEADLINE rules (Global):
-- ONE plain thesis for THIS narrative only — what actually moved this week.
-- 6–12 words, max 92 characters. Title case. No semicolons.
-- No jargon (repricing, compression, dimension, regime).`;
+function buildForYouDigest(selection: WeeklyBriefingSelection): string {
+  return selection.threads
+    .map((thread, idx) => {
+      return `THREAD ${idx + 1} — ${thread.label} (reader relevance ${thread.personalScore}/10)
+${buildStoryDigest(thread.stories)}`;
+    })
+    .join("\n\n");
+}
 
-const SUMMARY_RULES = `SUMMARY rules:
-- 4–5 sentences. Structure: what happened → plausible implication (if sources support it) → what to watch.
-- Stay inside the narrative focus. Calm operator voice — not a hedge-fund memo.`;
+const GLOBAL_HEADLINE_RULES = `HEADLINE (Global):
+- What mattered in the world — 6–10 words, max 88 characters, title case.
+- Single world frame — not personal advice.`;
+
+const FOR_YOU_HEADLINE_RULES = `HEADLINE (For You):
+- This reader's week in priority terms — 6–12 words, max 92 characters, title case.
+- May reflect multiple personal stakes (e.g. rates + AI spend + hiring) — not one cluster only.`;
+
+const GLOBAL_SUMMARY_RULES = `SUMMARY (Global):
+- Exactly 3 short sentences (~60–75 words). One world narrative only.
+- (1) What happened. (2) World implication if it holds (may/could). (3) What to watch.`;
+
+const FOR_YOU_SUMMARY_RULES = `SUMMARY (For You):
+- 4–5 short sentences (~85–100 words), scannable (facts then implications).
+- Cover 2–4 threads from below — one sentence each on what matters FOR THIS READER.
+- Label uncertainty where needed. End with their top watch item across threads.`;
+
+const SYSTEM_BY_MODE: Record<WeeklyBriefingMode, string> = {
+  global:
+    "You write the Global weekly briefing: the single dominant world narrative this week. Short homepage copy.",
+  "for-you":
+    "You write a personal strategic briefing: synthesize MULTIPLE developments that matter to this specific reader. Never reduce to one cluster or reword Global.",
+};
 
 export function buildWeeklyBriefingPrompt(
-  stories: Story[],
-  mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null,
-  narrative: WeeklyNarrativeSelection
+  selection: WeeklyBriefingSelection,
+  profile: OnboardingProfile | null
 ): { system: string; user: string } {
-  const digest = buildStoryDigest(stories);
-  const fullTextCount = stories.filter((s) => s.articleBodySource === "url").length;
+  const mode = selection.mode;
+  const allStories = selection.threads.flatMap((t) => t.stories);
+  const fullTextCount = allStories.filter(
+    (s) => s.articleBodySource === "url"
+  ).length;
 
   const section = mode === "global" ? WEEKLY_GLOBAL : WEEKLY_FOR_YOU;
-
-  const readerBlock =
-    mode === "for-you" && profile && canPersonalize({ profile })
-      ? `${buildReaderNote(profile)}\n`
-      : "";
+  const modeFrame = buildWeeklyModeFrame(mode, profile);
+  const material =
+    mode === "global"
+      ? buildGlobalDigest(selection)
+      : buildForYouDigest(selection);
 
   const headlineRules =
     mode === "for-you" ? FOR_YOU_HEADLINE_RULES : GLOBAL_HEADLINE_RULES;
+  const summaryRules =
+    mode === "for-you" ? FOR_YOU_SUMMARY_RULES : GLOBAL_SUMMARY_RULES;
+
+  const threadNote =
+    mode === "for-you"
+      ? `${selection.threads.length} personal priority threads — synthesize ALL that matter; do not merge unrelated lanes.`
+      : `1 world narrative thread.`;
 
   return {
-    system:
-      "You brief a decision-maker in plain English. One narrative thread only. Evidence first, cautious inference second, watch items third. Never blend unrelated storylines or invent macro drama.",
+    system: SYSTEM_BY_MODE[mode],
     user: `${WEEKLY_ADVISOR_RULES}
 
 ${WRITING_RULES}
 
-NARRATIVE FOCUS (mandatory — do not leave this lane):
-${narrative.narrativeLabel}
-All ${stories.length} stories below belong to this single thread (${fullTextCount} with full article text).
-Only use claims supported by the material below.
+${modeFrame}
+
+${threadNote}
+${fullTextCount} stories with full article text where noted.
 
 SECTION: ${section.purpose}
 Task: ${section.task}
-${readerBlock}
-${headlineRules}
-${SUMMARY_RULES}
 
-STORY MATERIAL (one narrative cluster only):
-${digest}
+${headlineRules}
+${summaryRules}
+
+MATERIAL:
+${material}
 
 Respond using these exact tags (plain text inside each tag, no JSON):
 
@@ -89,7 +119,7 @@ Respond using these exact tags (plain text inside each tag, no JSON):
 </SUMMARY>
 
 <KEY_SIGNAL>
-One sentence: the most concrete fact or near-term watch item from the material — not a dramatic prediction
+One short line: this reader's top watch item (For You) or world's top fact to watch (Global)
 </KEY_SIGNAL>`,
   };
 }

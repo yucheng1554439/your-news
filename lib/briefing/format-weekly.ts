@@ -1,3 +1,4 @@
+import type { WeeklyBriefingSelection } from "@/lib/briefing/weekly-selection";
 import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
@@ -6,8 +7,11 @@ const TITLE_MAX: Record<WeeklyBriefingMode, number> = {
   global: 92,
 };
 
-const SUMMARY_MAX = 920;
-const SIGNAL_MAX = 280;
+const SUMMARY_MAX = 480;
+const SUMMARY_MAX_SENTENCES_GLOBAL = 3;
+const SUMMARY_MAX_SENTENCES_FOR_YOU = 5;
+const SUMMARY_MAX_FOR_YOU = 560;
+const SIGNAL_MAX = 200;
 
 const LIST_LIKE =
   /;|(\b(and|while|as)\b[^.]{0,80}\b(and|while)\b)|^(\d+[\.\)]\s)/i;
@@ -60,23 +64,57 @@ export function normalizeWeeklyHeadline(
   return headline;
 }
 
-export function normalizeWeeklySummary(raw: string): string {
+function limitSentences(text: string, maxSentences: number): string {
+  const sentences = text.match(/[^.!?]+[.!?]+/g);
+  if (!sentences || sentences.length <= maxSentences) return text.trim();
+  return sentences.slice(0, maxSentences).join(" ").trim();
+}
+
+export function normalizeWeeklySummary(
+  raw: string,
+  mode: WeeklyBriefingMode = "global"
+): string {
+  const maxSentences =
+    mode === "for-you"
+      ? SUMMARY_MAX_SENTENCES_FOR_YOU
+      : SUMMARY_MAX_SENTENCES_GLOBAL;
+  const maxChars = mode === "for-you" ? SUMMARY_MAX_FOR_YOU : SUMMARY_MAX;
+
   let summary = raw.replace(/\s+/g, " ").trim();
   summary = summary.replace(/\.\.\.+$/g, ".").replace(/…$/g, "");
+  summary = limitSentences(summary, maxSentences);
 
-  if (summary.length <= SUMMARY_MAX) return summary;
+  if (summary.length <= maxChars) {
+    return formatScannableSummary(summary, maxSentences);
+  }
 
-  const chunk = summary.slice(0, SUMMARY_MAX);
+  const chunk = summary.slice(0, maxChars);
   const lastEnd = Math.max(
     chunk.lastIndexOf("."),
     chunk.lastIndexOf("!"),
     chunk.lastIndexOf("?")
   );
-  if (lastEnd > SUMMARY_MAX * 0.55) {
-    return chunk.slice(0, lastEnd + 1).trim();
+  if (lastEnd > maxChars * 0.55) {
+    return formatScannableSummary(
+      chunk.slice(0, lastEnd + 1).trim(),
+      maxSentences
+    );
   }
   const lastSpace = chunk.lastIndexOf(" ");
-  return (lastSpace > 40 ? chunk.slice(0, lastSpace) : chunk).trim();
+  return formatScannableSummary(
+    (lastSpace > 40 ? chunk.slice(0, lastSpace) : chunk).trim(),
+    maxSentences
+  );
+}
+
+/** Break into short blocks for homepage scanning. */
+function formatScannableSummary(text: string, maxSentences: number): string {
+  const sentences = text.match(/[^.!?]+[.!?]+/g);
+  if (!sentences || sentences.length < 2) return text.trim();
+  return sentences
+    .slice(0, maxSentences)
+    .map((s) => s.trim())
+    .join("\n\n");
 }
 
 export function normalizeKeySignal(raw: string): string {
@@ -94,11 +132,43 @@ function leadInsightPhrase(story: Story): string {
   return compressToTitle(first, TITLE_MAX.global);
 }
 
+function deriveForYouMultiHeadline(
+  selection: WeeklyBriefingSelection,
+  profile: OnboardingProfile | null
+): string {
+  const labels = selection.threads
+    .slice(0, 3)
+    .map((t) => t.label.split("&")[0]?.trim() ?? t.label)
+    .filter(Boolean);
+
+  if (labels.length >= 2) {
+    const combined = labels.slice(0, 2).join(" And ");
+    return normalizeWeeklyHeadline(combined, "for-you");
+  }
+
+  if (profile?.career) {
+    const titles: Record<NonNullable<OnboardingProfile["career"]>, string> = {
+      investor: "Several Portfolio Pressures This Week",
+      engineer: "Several Build-And-Hire Signals This Week",
+      founder: "Several GTM And Funding Pressures This Week",
+      executive: "Several Operating Risks This Week",
+      researcher: "Several Claims Need Your Review",
+    };
+    return titles[profile.career];
+  }
+
+  return "Several Priorities For You This Week";
+}
+
 export function deriveFallbackHeadline(
   selected: Story[],
   mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
+  profile: OnboardingProfile | null,
+  selection?: WeeklyBriefingSelection
 ): string {
+  if (mode === "for-you" && selection && selection.threads.length > 1) {
+    return deriveForYouMultiHeadline(selection, profile);
+  }
   const lead = selected[0];
   if (!lead) {
     return mode === "for-you"
@@ -132,11 +202,35 @@ export function deriveFallbackHeadline(
   );
 }
 
+function deriveForYouMultiSummary(
+  selection: WeeklyBriefingSelection,
+  profile: OnboardingProfile | null
+): string {
+  const parts = selection.threads.slice(0, 4).map((thread) => {
+    const lead = thread.stories[0];
+    const fact = lead
+      ? (lead.articleBody ?? lead.rawExcerpt ?? lead.summary)
+          .split(/[.!?]/)[0]
+          ?.trim()
+      : thread.label;
+    return `${thread.label}: ${fact} — may affect your ${profile?.career ?? "priorities"} if it holds.`;
+  });
+
+  const watch =
+    "Watch which thread gets confirming data first — that is likely where you should act.";
+  return normalizeWeeklySummary(`${parts.join(" ")} ${watch}`, "for-you");
+}
+
 export function deriveFallbackSummary(
   selected: Story[],
   mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
+  profile: OnboardingProfile | null,
+  selection?: WeeklyBriefingSelection
 ): string {
+  if (mode === "for-you" && selection && selection.threads.length > 1) {
+    return deriveForYouMultiSummary(selection, profile);
+  }
+
   const lead = selected[0];
   const mechanism = lead
     ? (lead.articleBody ?? lead.rawExcerpt ?? lead.summary)
@@ -147,11 +241,13 @@ export function deriveFallbackSummary(
   if (mode === "for-you" && profile) {
     const career = profile.career ?? "reader";
     return normalizeWeeklySummary(
-      `${mechanism} For you as a ${career}, the practical question is whether this changes a decision you own this month. Watch for a follow-up report or data point that confirms or contradicts the story. If it confirms, decide what to adjust; if not, treat it as noise until more evidence appears.`
+      `${mechanism} For you as a ${career}, the open question is whether this changes a decision you own soon. Watch for a follow-up that confirms or contradicts it.`,
+      "for-you"
     );
   }
 
   return normalizeWeeklySummary(
-    `${mechanism} The stories in this lane point to the same thread, but the size of the impact is still uncertain. Watch the next official statement, earnings print, or policy step that would confirm the direction. Until then, treat implications as provisional — not settled.`
+    `${mechanism} If the trend holds, more actors in this lane may respond — but scale is still unclear. Watch the next official step or earnings print that would confirm direction.`,
+    "global"
   );
 }
