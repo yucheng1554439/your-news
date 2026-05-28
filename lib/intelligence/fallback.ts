@@ -32,7 +32,7 @@ function buildWhyItMatters(story: Story): string {
   const domain = inferConsequenceDomain(story);
   const lead = (story.rawExcerpt ?? story.summary).split(/[.!?]/)[0]?.trim();
   const hook = lead ? `${lead}. ` : "";
-  return `${hook}The strategic stake is ${domain} — institutions will rebalance before the narrative fully settles.`.slice(
+  return `${hook}If reporting holds, the practical angle is ${domain} — check the next primary-source update before acting.`.slice(
     0,
     420
   );

@@ -7,10 +7,12 @@ import {
   writeIntelligenceMeta,
 } from "@/lib/persistence/intelligence-meta-persist";
 import { persistGet, persistSet } from "@/lib/persistence/kv-store";
+import { getActiveModel } from "@/lib/intelligence/provider/config";
 import type { Story } from "@/lib/types";
 
 export type PlatformIntelligenceSnapshot = {
-  version: 2;
+  version: 3;
+  aiModel: string;
   updatedAt: number;
   storiesFetchedAt: number;
   profileFingerprint: string;
@@ -22,8 +24,9 @@ export async function readPlatformIntelligenceSnapshot(): Promise<PlatformIntell
   const snapshot = await persistGet<PlatformIntelligenceSnapshot>(
     PERSIST_KEYS.intelligenceSnapshot
   );
-  if (snapshot?.version === 2) return snapshot;
-  return null;
+  if (snapshot?.version !== 3) return null;
+  if (snapshot.aiModel !== getActiveModel()) return null;
+  return snapshot;
 }
 
 export async function writePlatformIntelligenceSnapshot(
@@ -39,6 +42,7 @@ export async function writePlatformIntelligenceSnapshot(
   }
 
   await writeIntelligenceMeta({
+    aiModel: snapshot.aiModel,
     lastSuccessfulRefreshAt: snapshot.updatedAt,
     lastRefreshAttemptAt: snapshot.updatedAt,
     storiesFetchedAt: snapshot.storiesFetchedAt,
@@ -58,6 +62,7 @@ export async function recordRefreshAttempt(
 ): Promise<void> {
   const existing = await readIntelligenceMeta();
   await writeIntelligenceMeta({
+    aiModel: getActiveModel(),
     lastSuccessfulRefreshAt: existing?.lastSuccessfulRefreshAt ?? 0,
     lastRefreshAttemptAt: Date.now(),
     storiesFetchedAt: existing?.storiesFetchedAt ?? 0,

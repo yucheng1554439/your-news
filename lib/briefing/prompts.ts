@@ -1,7 +1,7 @@
 import "server-only";
 
 import { truncateForModel } from "@/lib/extraction/clean";
-import { getFeedDomain } from "@/lib/feed/domain-buckets";
+import type { WeeklyNarrativeSelection } from "@/lib/briefing/narrative-synthesis";
 import {
   WEEKLY_FOR_YOU,
   WEEKLY_GLOBAL,
@@ -13,48 +13,38 @@ import type { OnboardingProfile, Story } from "@/lib/types";
 import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
 
 function buildStoryDigest(stories: Story[]): string {
-  const index = stories
-    .map(
-      (s, i) =>
-        `${i + 1}. [${getFeedDomain(s)}] ${s.headline} (${s.source})`
-    )
-    .join("\n");
-
   const bodies = stories
     .map((s, i) => {
       const material = s.articleBody?.trim() || s.rawExcerpt?.trim() || s.summary;
       const source = s.articleBodySource ?? "excerpt";
       const text = truncateForModel(material, 2200);
-      return `--- Story ${i + 1} · ${getFeedDomain(s)} · ${source} ---
-Headline: ${s.headline}
+      return `--- ${i + 1}. ${s.headline} (${s.source}) · ${source} ---
 ${text}`;
     })
     .join("\n\n");
 
-  return `INDEX (read every story body below before writing):\n${index}\n\n${bodies}`;
+  return bodies;
 }
 
 const FOR_YOU_HEADLINE_RULES = `HEADLINE rules (For You):
-- ONE sharp insight for THIS reader — not a list of stories.
-- 6–12 words, max 88 characters. Title case. No semicolons. No comma chains.
-- Sounds like: "Oil Shock Risk Is Rising Faster Than Markets Expect" or "Enterprise AI Spending Is Starting To Tighten".
-- NOT: headline lists, "X; Y; Z", or "This week in markets and tech".`;
+- ONE plain insight for THIS reader about THIS narrative only.
+- 6–12 words, max 88 characters. Title case. No semicolons.
+- State the development or decision point — not abstract macro labels.`;
 
 const GLOBAL_HEADLINE_RULES = `HEADLINE rules (Global):
-- ONE definitive weekly thesis — the dominant macro repricing event.
+- ONE plain thesis for THIS narrative only — what actually moved this week.
 - 6–12 words, max 92 characters. Title case. No semicolons.
-- Sounds like: "Middle East Escalation Repriced Global Risk" or "AI Infrastructure Spending Entered A New Phase".
-- NOT: compressed article titles or multi-story rollups.`;
+- No jargon (repricing, compression, dimension, regime).`;
 
-const SUMMARY_RULES = `SUMMARY rules (both modes):
-- 4–5 sentences. Calm strategic advisor tone — implications, what to monitor, consequences.
-- Cover: what changed, why it matters, what could change next, what a decision-maker should watch.
-- No magazine voice, no "this week linked", no listing headlines.`;
+const SUMMARY_RULES = `SUMMARY rules:
+- 4–5 sentences. Structure: what happened → plausible implication (if sources support it) → what to watch.
+- Stay inside the narrative focus. Calm operator voice — not a hedge-fund memo.`;
 
 export function buildWeeklyBriefingPrompt(
   stories: Story[],
   mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
+  profile: OnboardingProfile | null,
+  narrative: WeeklyNarrativeSelection
 ): { system: string; user: string } {
   const digest = buildStoryDigest(stories);
   const fullTextCount = stories.filter((s) => s.articleBodySource === "url").length;
@@ -71,14 +61,15 @@ export function buildWeeklyBriefingPrompt(
 
   return {
     system:
-      "You are a strategic intelligence advisor. Synthesize cross-domain developments into one clear weekly judgment. Never summarize stories one-by-one.",
+      "You brief a decision-maker in plain English. One narrative thread only. Evidence first, cautious inference second, watch items third. Never blend unrelated storylines or invent macro drama.",
     user: `${WEEKLY_ADVISOR_RULES}
 
 ${WRITING_RULES}
 
-You have ${stories.length} stories (${fullTextCount} with full article text).
-- Synthesize mechanisms across domains (markets, policy, geopolitics, energy, technology).
-- Name specific drivers (policy action, price move, regulation, supply) — not category labels.
+NARRATIVE FOCUS (mandatory — do not leave this lane):
+${narrative.narrativeLabel}
+All ${stories.length} stories below belong to this single thread (${fullTextCount} with full article text).
+Only use claims supported by the material below.
 
 SECTION: ${section.purpose}
 Task: ${section.task}
@@ -86,7 +77,7 @@ ${readerBlock}
 ${headlineRules}
 ${SUMMARY_RULES}
 
-STORY MATERIAL:
+STORY MATERIAL (one narrative cluster only):
 ${digest}
 
 Respond using these exact tags (plain text inside each tag, no JSON):
@@ -98,7 +89,7 @@ Respond using these exact tags (plain text inside each tag, no JSON):
 </SUMMARY>
 
 <KEY_SIGNAL>
-One sentence: highest-stakes consequence if this week's developments persist
+One sentence: the most concrete fact or near-term watch item from the material — not a dramatic prediction
 </KEY_SIGNAL>`,
   };
 }

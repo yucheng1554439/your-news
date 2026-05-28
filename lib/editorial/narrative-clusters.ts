@@ -12,6 +12,8 @@ export type NarrativeTheme =
   | "big-tech-ai"
   | "cyber-breach"
   | "policy-regulation"
+  | "banking-financial"
+  | "humanitarian-social"
   | "general";
 
 type ThemeRule = { theme: NarrativeTheme; pattern: RegExp };
@@ -57,6 +59,16 @@ const THEME_RULES: ThemeRule[] = [
     theme: "policy-regulation",
     pattern:
       /\b(antitrust|sec charges|ftc|congress|legislation|eu commission|regulation)\b/i,
+  },
+  {
+    theme: "banking-financial",
+    pattern:
+      /\b(bank regulation|fdic|basel|liquidity rule|regional bank|credit default|banking sector|bond market|treasury auction)\b/i,
+  },
+  {
+    theme: "humanitarian-social",
+    pattern:
+      /\b(food insecurity|hunger crisis|humanitarian aid|food bank|poverty rate|malnutrition)\b/i,
   },
 ];
 
@@ -146,7 +158,15 @@ function shouldCluster(a: Story, b: Story): boolean {
 
   const headA = tokenSet(normalizeHeadlineKey(a.headline));
   const headB = tokenSet(normalizeHeadlineKey(b.headline));
-  if (tokenOverlap(headA, headB) >= 0.55) return true;
+  if (themeA !== themeB) {
+    if (themeA !== "general" && themeB !== "general") {
+      return false;
+    }
+  }
+
+  if (tokenOverlap(headA, headB) >= 0.55) {
+    return themeA === themeB || themeA === "general" || themeB === "general";
+  }
 
   if (
     themeA === themeB &&

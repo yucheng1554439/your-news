@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createMemoryStore } from "@/lib/cache/memory-store";
+import { getModelCacheToken } from "@/lib/intelligence/provider/config";
 import { storyIntelligenceKey } from "@/lib/persistence/keys";
 import { persistGet, persistSet } from "@/lib/persistence/kv-store";
 import type { StoryIntelligencePackage } from "@/lib/intelligence/types";
@@ -27,7 +28,7 @@ function memoryCacheKey(slug: string, profileHash: string): string {
 }
 
 /** Bump when prompt/output shape changes to avoid serving stale generations. */
-const GENERATION_VERSION = "tags-v9";
+const GENERATION_VERSION = "tags-v12-grounded";
 
 export function contentFingerprint(
   headline: string,
@@ -36,7 +37,7 @@ export function contentFingerprint(
   bodyHash?: string
 ): string {
   const bodySlice = (bodyMaterial ?? "").slice(0, 200);
-  return `${GENERATION_VERSION}|${headline.slice(0, 80)}|${publishedAt}|${bodySlice}|${bodyHash ?? ""}`;
+  return `${GENERATION_VERSION}|${getModelCacheToken()}|${headline.slice(0, 80)}|${publishedAt}|${bodySlice}|${bodyHash ?? ""}`;
 }
 
 export async function readIntelligenceCache(

@@ -2,8 +2,15 @@ import "server-only";
 
 import type { AIProviderId } from "@/lib/intelligence/provider/types";
 
-const ANTHROPIC_DEFAULT_MODEL = "claude-3-5-sonnet-20241022";
+/** Default when ANTHROPIC_MODEL / CLAUDE_MODEL are unset. */
+export const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
+
+/** Bumps persisted caches when the active model changes. */
+export function getModelCacheToken(): string {
+  const model = getActiveModel().replace(/[^a-z0-9.-]/gi, "-").slice(0, 48);
+  return `${getAIProvider()}:${model}`;
+}
 
 export function getAIProvider(): AIProviderId {
   const explicit = process.env.AI_PROVIDER?.trim().toLowerCase();

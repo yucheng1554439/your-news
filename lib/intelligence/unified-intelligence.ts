@@ -22,9 +22,9 @@ export async function generateUnifiedIntelligence(
   const result = await callAIJson({
     label: `Story intelligence · ${story.slug.slice(0, 48)}`,
     system:
-      "You analyze news by tracing consequences. Each tagged section has a distinct purpose. No filler phrases.",
+      "You brief a colleague in plain English. Facts first, cautious implications second. No finance jargon, macro fanfiction, or pretend certainty.",
     user: buildUnifiedIntelligencePrompt(story, profile),
-    temperature: personalized ? 0.48 : 0.42,
+    temperature: personalized ? 0.32 : 0.28,
     maxTokens: 900,
     responseFormat: "tags",
     parse: (content) =>

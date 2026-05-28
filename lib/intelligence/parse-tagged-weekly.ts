@@ -9,6 +9,10 @@ import {
 } from "@/lib/briefing/format-weekly";
 import { deriveKeySignal } from "@/lib/briefing/key-signal";
 import { intelligenceGeneratedByProvider } from "@/lib/intelligence/provider";
+import {
+  sanitizeGroundedProse,
+  violatesGroundedTone,
+} from "@/lib/intelligence/writing-guardrails";
 import { extractJsonPayload } from "@/lib/intelligence/provider/extract-json";
 import {
   extractTaggedSections,
@@ -18,9 +22,6 @@ import {
 import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
 import type { WeeklyBriefing } from "@/lib/briefing/weekly-engine";
 import type { OnboardingProfile, Story } from "@/lib/types";
-
-const BRIEFING_FILLER =
-  /\b(coverage is developing|dominant theme|worth tracking|through-line|this weekly|landscape shifted)\b/i;
 
 const HEADLINE_ALIASES = ["HEADLINE", "TITLE", "THESIS"];
 const SUMMARY_ALIASES = ["SUMMARY", "BRIEFING", "WEEKLY_BRIEFING", "SYNTHESIS"];
@@ -33,7 +34,7 @@ const SIGNAL_ALIASES = [
 ];
 
 function isFiller(text: string): boolean {
-  return BRIEFING_FILLER.test(text);
+  return violatesGroundedTone(text);
 }
 
 function parseFromJson(
@@ -107,12 +108,13 @@ function finalizeBriefing(input: {
     summary = headline;
   }
 
-  summary = normalizeWeeklySummary(summary);
+  headline = sanitizeGroundedProse(headline);
+  summary = normalizeWeeklySummary(sanitizeGroundedProse(summary));
 
   if (!keySignal || keySignal.length < 12) {
     keySignal = deriveKeySignal(input.selected);
   }
-  keySignal = normalizeKeySignal(keySignal);
+  keySignal = normalizeKeySignal(sanitizeGroundedProse(keySignal));
 
   if (!headline || headline.length < 8) return null;
   if (!summary || summary.length < 60) {

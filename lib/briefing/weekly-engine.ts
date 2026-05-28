@@ -15,7 +15,7 @@ import {
 } from "@/lib/briefing/format-weekly";
 import { deriveKeySignal } from "@/lib/briefing/key-signal";
 import { parseWeeklyBriefingResponse } from "@/lib/intelligence/parse-tagged-weekly";
-import { selectWeeklyStrategicPool } from "@/lib/editorial/weekly-narrative";
+import { selectWeeklyNarrativeForSynthesis } from "@/lib/briefing/narrative-synthesis";
 import {
   callAIJson,
   getAIProvider,
@@ -24,10 +24,6 @@ import {
   isAIFallbackAllowed,
 } from "@/lib/intelligence/provider";
 import type { IntelligenceGeneratedBy } from "@/lib/intelligence/types";
-import {
-  rankStoriesForUser,
-  rankStoriesGlobal,
-} from "@/lib/personalization/engine";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 export type WeeklyBriefingMode = "for-you" | "global";
@@ -96,17 +92,12 @@ async function writeBriefingCache(
   await writePersistedWeeklyBriefing(key, briefing);
 }
 
-function selectStoriesForMode(
+function selectNarrativeForMode(
   stories: Story[],
   mode: WeeklyBriefingMode,
   profile: OnboardingProfile | null
-): Story[] {
-  const base =
-    mode === "for-you" && profile?.completed
-      ? rankStoriesForUser(stories, profile)
-      : rankStoriesGlobal(stories);
-
-  return selectWeeklyStrategicPool(base, 12, profile);
+) {
+  return selectWeeklyNarrativeForSynthesis(stories, mode, profile);
 }
 
 function buildSyncBriefing(
@@ -115,7 +106,8 @@ function buildSyncBriefing(
   profile: OnboardingProfile | null,
   aiError?: string
 ): WeeklyBriefing {
-  const selected = selectStoriesForMode(stories, mode, profile);
+  const narrative = selectNarrativeForMode(stories, mode, profile);
+  const selected = narrative.stories;
 
   const base = {
     weekLabel: getWeekRangeLabel(),
@@ -138,11 +130,17 @@ async function buildAIBriefing(
   mode: WeeklyBriefingMode,
   profile: OnboardingProfile | null
 ): Promise<{ briefing: WeeklyBriefing | null; error?: string }> {
-  const selected = selectStoriesForMode(stories, mode, profile);
+  const narrative = selectNarrativeForMode(stories, mode, profile);
+  const selected = narrative.stories;
   const withBodies = await Promise.all(
     selected.map((s) => ensureStoryArticleBody(s))
   );
-  const { system, user } = buildWeeklyBriefingPrompt(withBodies, mode, profile);
+  const { system, user } = buildWeeklyBriefingPrompt(
+    withBodies,
+    mode,
+    profile,
+    narrative
+  );
 
   const provider = getAIProvider();
   const weekLabel = getWeekRangeLabel();
@@ -150,7 +148,7 @@ async function buildAIBriefing(
     label: `Weekly briefing · ${mode}`,
     system,
     user,
-    temperature: 0.3,
+    temperature: 0.2,
     maxTokens: 950,
     responseFormat: "tags",
     parse: (content) =>
@@ -185,12 +183,8 @@ export async function resolveWeeklyBriefing(
   profile: OnboardingProfile | null,
   options?: ResolveWeeklyBriefingOptions
 ): Promise<WeeklyBriefing> {
-  const selected = selectStoriesForMode(stories, mode, profile);
-  const cacheKey = weeklyBriefingCacheKey(
-    mode,
-    profile,
-    selected.map((s) => s.slug)
-  );
+  const narrative = selectNarrativeForMode(stories, mode, profile);
+  const cacheKey = weeklyBriefingCacheKey(mode, profile, narrative.clusterId);
 
   if (!options?.force) {
     const platform = await readPlatformIntelligenceSnapshot();

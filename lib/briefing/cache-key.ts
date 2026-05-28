@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { getProfileBriefingFingerprint } from "@/lib/briefing/profile-fingerprint";
+import { getModelCacheToken } from "@/lib/intelligence/provider/config";
 import type { OnboardingProfile } from "@/lib/types";
 import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
 
@@ -8,14 +9,15 @@ export { getProfileBriefingFingerprint } from "@/lib/briefing/profile-fingerprin
 export function weeklyBriefingCacheKey(
   mode: WeeklyBriefingMode,
   profile: OnboardingProfile | null,
-  storySlugs: string[]
+  narrativeClusterId: string
 ): string {
-  const slugHash = createHash("sha256")
-    .update(storySlugs.slice(0, 8).join(","))
+  const clusterHash = createHash("sha256")
+    .update(narrativeClusterId)
     .digest("hex")
     .slice(0, 16);
 
   const profileFingerprint = getProfileBriefingFingerprint(profile);
+  const modelToken = getModelCacheToken();
 
-  return `advisor-v10:${mode}:${profileFingerprint}:${slugHash}`;
+  return `cluster-v12-grounded:${modelToken}:${mode}:${profileFingerprint}:${clusterHash}`;
 }

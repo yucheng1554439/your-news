@@ -30,7 +30,7 @@ SOURCE:
 ${article}
 
 ${reader ? `${reader}\n` : ""}
-Read the FULL ARTICLE TEXT first. Each tagged section has ONE job. Do not repeat the same point across sections. Do not paraphrase the headline — extract what changed and who is affected from the body.
+Read the FULL ARTICLE TEXT first. Each tagged section has ONE job. Do not repeat the same point across sections. Do not paraphrase the headline — extract what changed and who is affected from the body. Stay evidence-based; avoid macro fanfiction and finance jargon.
 
 Respond using these exact tags (plain text inside each tag, no JSON):
 

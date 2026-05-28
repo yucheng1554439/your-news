@@ -102,8 +102,8 @@ export function deriveFallbackHeadline(
   const lead = selected[0];
   if (!lead) {
     return mode === "for-you"
-      ? "One Development Deserves Your Attention This Week"
-      : "Markets And Policy Repriced Together This Week";
+      ? "One Development To Watch This Week"
+      : "One Development Stood Out This Week";
   }
 
   const base = leadInsightPhrase(lead);
@@ -116,17 +116,17 @@ export function deriveFallbackHeadline(
       NonNullable<OnboardingProfile["career"]>,
       string
     > = {
-      investor: "Portfolio Risk Is Shifting Faster Than Positioning Suggests",
-      engineer: "Enterprise Tech Spending Is Entering A Tighter Phase",
-      founder: "Capital Is Getting More Selective Around Growth Bets",
-      executive: "Operating Exposure Is Concentrating In A Few Macro Bets",
-      researcher: "Evidence Is Moving Faster Than Published Consensus",
+      investor: "One Market Move Worth Tracking",
+      engineer: "One Tech Shift Worth Tracking",
+      founder: "One Business Signal Worth Tracking",
+      executive: "One Operating Risk Worth Tracking",
+      researcher: "One Claim Worth Verifying",
     };
     return careerTitles[profile.career];
   }
 
   return normalizeWeeklyHeadline(
-    "Global Risk And Policy Repriced In Parallel",
+    lead.headline,
     mode,
     lead.headline
   );
@@ -147,11 +147,11 @@ export function deriveFallbackSummary(
   if (mode === "for-you" && profile) {
     const career = profile.career ?? "reader";
     return normalizeWeeklySummary(
-      `${mechanism} For you as a ${career}, the implication is timing: what to hedge, what to accelerate, and what to stop funding. Monitor whether follow-on data confirms the move or reverses it. If confirmation holds, adjust exposure before consensus catches up.`
+      `${mechanism} For you as a ${career}, the practical question is whether this changes a decision you own this month. Watch for a follow-up report or data point that confirms or contradicts the story. If it confirms, decide what to adjust; if not, treat it as noise until more evidence appears.`
     );
   }
 
   return normalizeWeeklySummary(
-    `${mechanism} The defining shift is that markets, governments, and supply chains are reacting to the same pressure at once. Watch whether rate, energy, and conflict signals reinforce or diverge next week. If reinforcement continues, expect defensive positioning to extend across assets and capex plans.`
+    `${mechanism} The stories in this lane point to the same thread, but the size of the impact is still uncertain. Watch the next official statement, earnings print, or policy step that would confirm the direction. Until then, treat implications as provisional — not settled.`
   );
 }

@@ -8,6 +8,7 @@ import {
   splitProseBlocks,
 } from "@/lib/intelligence/provider/extract-tags";
 import type { StoryIntelligencePackage } from "@/lib/intelligence/types";
+import { sanitizeGroundedProse } from "@/lib/intelligence/writing-guardrails";
 
 const BRIEFING_ALIASES = ["THE_BRIEFING", "BRIEFING", "TITLE", "SUMMARY"];
 const WHY_ALIASES = ["WHY_IT_MATTERS", "WHY_THIS_MATTERS", "STRATEGIC_IMPORTANCE"];
@@ -77,6 +78,9 @@ function buildPackage(input: {
     }
   }
 
+  theBriefing = sanitizeGroundedProse(theBriefing);
+  whyItMatters = sanitizeGroundedProse(whyItMatters);
+
   if (!theBriefing || theBriefing.length < 16) return null;
   if (!whyItMatters || whyItMatters.length < 20) {
     if (theBriefing.length >= 48) {
@@ -91,7 +95,7 @@ function buildPackage(input: {
     whyItMatters: clip(whyItMatters, 480),
     whyItMattersToYou:
       whyItMattersToYou && whyItMattersToYou.length >= 16
-        ? clip(whyItMattersToYou, 520)
+        ? clip(sanitizeGroundedProse(whyItMattersToYou), 520)
         : undefined,
     generatedAt: new Date().toISOString(),
     profileFingerprint: input.profileFingerprint,

@@ -2,40 +2,44 @@
  * Section purposes — shared contract for prompts and fallbacks.
  */
 
-export const WEEKLY_ADVISOR_RULES = `Advisor tone:
-- Sharp, calm, strategic. You counsel a decision-maker — not a magazine reader.
-- State implications, what to monitor, and what could change if the trend holds.
-- No theatrics, no vague editorial filler, no headline lists.`;
+import {
+  GROUNDED_REASONING,
+  OPERATOR_TONE,
+} from "@/lib/intelligence/writing-guardrails";
 
-export const WRITING_RULES = `Rules:
-- Plain, factual English. Write like a sharp analyst, not a magazine editor.
-- Explain cause → effect → who must react. Use specifics from the source (names, numbers, actions).
+export const WEEKLY_ADVISOR_RULES = `${OPERATOR_TONE}
+- Weekly: one narrative lane only. Explain what moved, what it may mean if it continues, and what evidence to watch next.`;
+
+export const WRITING_RULES = `Writing standard:
+${GROUNDED_REASONING}
+${OPERATOR_TONE}
+- Use specifics from the source (names, numbers, actions, dates).
 - Do not label categories ("technology dominated") — describe what changed.
-- Banned phrases: dominant theme, incentives shifted, faster than consensus, documentary, landscape, worth tracking, through-line, repricing, signal vs noise, game-changer, private desk.
-- No hedging: "may", "could", "watch whether".
+- Banned jargon/theatrics: repricing, risk assets, demand-side dimension, long-duration growth compression, dominant shift, through-line, signal vs noise, game-changer, private desk, landscape, documentary filler, "institutions will rebalance before the narrative settles".
+- Light hedging is encouraged when evidence is incomplete ("may", "if reports hold", "watch for").
 - Use only facts from provided material.`;
 
 export const STORY_SECTIONS = {
   theBriefing: {
     purpose: "What happened?",
-    task: "2–3 sentences. Who did what, when. Facts only.",
+    task: "2–3 sentences. Who did what, when. Facts only — no implications here.",
   },
   whyItMatters: {
-    purpose: "Why is this strategically important?",
-    task: "2–3 sentences. Concrete consequences: markets, policy, supply chains, adoption, regulation, competition — cite the mechanism.",
+    purpose: "Why might this matter?",
+    task: "2–3 sentences. One plausible consequence mechanism (markets, policy, supply, competition) tied to facts in the article. No drama, no unsupported macro chains.",
   },
   whyItMattersToYou: {
-    purpose: "How does this affect THIS reader?",
-    task: "2–3 sentences. What changes for their job or decisions. One specific follow-up check.",
+    purpose: "How might this affect THIS reader?",
+    task: "2–3 sentences. Practical relevance for their role. One concrete thing to check. Do not repeat whyItMatters.",
   },
 } as const;
 
 export const WEEKLY_GLOBAL = {
-  purpose: "What is the defining macro repricing event this week?",
-  task: "One judgment across the material: the dominant shift, who is repricing, and why it persists. Advisor tone — not a survey of headlines.",
+  purpose: "What is the main development in this narrative this week?",
+  task: "One clear judgment grounded in the stories: what happened, what may change if it continues, and what to verify next. Not macro theater or a headline survey.",
 } as const;
 
 export const WEEKLY_FOR_YOU = {
-  purpose: "What is the one thing THIS reader must pay attention to?",
-  task: "One personalized judgment: highest-stakes implication for this reader's decisions — risks, timing, exposure. Not a list of stories.",
+  purpose: "What should THIS reader pay attention to in this narrative?",
+  task: "One personalized judgment: the highest-signal fact and a practical implication for their decisions. Name a watch item — not a list of stories.",
 } as const;

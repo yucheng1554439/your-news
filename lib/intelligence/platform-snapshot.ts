@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getProfileBriefingFingerprint } from "@/lib/briefing/profile-fingerprint";
+import { getActiveModel } from "@/lib/intelligence/provider/config";
 import {
   resolveWeeklyBriefing,
   type WeeklyBriefing,
@@ -222,7 +223,8 @@ async function runRefresh(
 
     const updatedAt = Date.now();
     const snapshot: PlatformIntelligenceSnapshot = {
-      version: 2,
+      version: 3,
+      aiModel: getActiveModel(),
       updatedAt,
       storiesFetchedAt: pool.fetchedAt,
       profileFingerprint,

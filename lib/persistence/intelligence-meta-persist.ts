@@ -6,6 +6,7 @@ import type { PersistBackend } from "@/lib/persistence/kv-store";
 
 export type IntelligenceMeta = {
   version: 1;
+  aiModel: string;
   lastSuccessfulRefreshAt: number;
   lastRefreshAttemptAt: number;
   storiesFetchedAt: number;
