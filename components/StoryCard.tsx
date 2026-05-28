@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { StoryImage } from "@/components/StoryImage";
+import { SaveStoryButton } from "@/components/SaveStoryButton";
 import { motion } from "framer-motion";
 import { getCategoryLabel } from "@/lib/data/categories";
 import { StoryDate } from "@/components/StoryDate";
@@ -13,25 +14,33 @@ interface StoryCardProps {
   story: Story;
   variant?: "default" | "featured" | "compact";
   className?: string;
+  usePersonalizedImportance?: boolean;
 }
 
 export function StoryCard({
   story,
   variant = "default",
   className,
+  usePersonalizedImportance = false,
 }: StoryCardProps) {
   const isFeatured = variant === "featured";
   const isCompact = variant === "compact";
-  const showCritical = isCriticalForDisplay(story);
+  const showCritical = usePersonalizedImportance
+    ? story.personalizedImportanceLabel === "Critical"
+    : isCriticalForDisplay(story);
 
   return (
     <motion.article
       whileHover={{ y: isFeatured ? -3 : -2 }}
       transition={{ duration: 0.2 }}
-      className={cn("group", className)}
+      className={cn("group relative", className)}
     >
+      <div className="absolute right-3 top-3 z-20 sm:right-4 sm:top-4">
+        <SaveStoryButton story={story} size={isFeatured ? "md" : "sm"} />
+      </div>
+
       <Link
-        href={`/story/${story.slug}`}
+        href={`/story/${encodeURIComponent(story.slug)}`}
         className={cn(
           "relative block overflow-hidden rounded-xl border bg-zinc-900",
           isFeatured
@@ -59,8 +68,8 @@ export function StoryCard({
 
         <div
           className={cn(
-            "absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-4",
-            isFeatured && "p-5 sm:p-6"
+            "absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-4 pr-14",
+            isFeatured && "p-5 pr-16 sm:p-6 sm:pr-20"
           )}
         >
           <div className="flex flex-wrap items-center gap-2">

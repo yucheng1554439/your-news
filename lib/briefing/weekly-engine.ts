@@ -1,11 +1,33 @@
 import "server-only";
 
-import { createHash } from "crypto";
+import { ensureStoryArticleBody } from "@/lib/extraction/resolve-body";
 import { createMemoryStore } from "@/lib/cache/memory-store";
+import { weeklyBriefingCacheKey } from "@/lib/briefing/cache-key";
+import {
+  readPersistedWeeklyBriefing,
+  writePersistedWeeklyBriefing,
+} from "@/lib/persistence/weekly-briefing-persist";
+import { readPlatformIntelligenceSnapshot } from "@/lib/persistence/intelligence-snapshot-persist";
+import { buildWeeklyBriefingPrompt } from "@/lib/briefing/prompts";
+import {
+  deriveFallbackHeadline,
+  deriveFallbackSummary,
+} from "@/lib/briefing/format-weekly";
 import { deriveKeySignal } from "@/lib/briefing/key-signal";
-import { getCategoryLabel } from "@/lib/data/categories";
-import { computeUserRelevanceScore } from "@/lib/personalization/engine";
-import { rankStoriesGlobal } from "@/lib/personalization/engine";
+import { parseWeeklyBriefingResponse } from "@/lib/intelligence/parse-tagged-weekly";
+import { selectWeeklyStrategicPool } from "@/lib/editorial/weekly-narrative";
+import {
+  callAIJson,
+  getAIProvider,
+  intelligenceGeneratedByProvider,
+  isAIConfigured,
+  isAIFallbackAllowed,
+} from "@/lib/intelligence/provider";
+import type { IntelligenceGeneratedBy } from "@/lib/intelligence/types";
+import {
+  rankStoriesForUser,
+  rankStoriesGlobal,
+} from "@/lib/personalization/engine";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 export type WeeklyBriefingMode = "for-you" | "global";
@@ -14,13 +36,15 @@ export type WeeklyBriefing = {
   weekLabel: string;
   headline: string;
   summary: string;
-  /** Strategic takeaway or key signal — shown in hero footer. */
   keySignal: string;
   mode: WeeklyBriefingMode;
+  generatedBy: IntelligenceGeneratedBy;
+  aiError?: string;
+  /** @deprecated Use aiError */
+  openaiError?: string;
 };
 
 const CACHE_TTL_MS = 30 * 60 * 1000;
-const OPENAI_API = "https://api.openai.com/v1/chat/completions";
 
 type BriefingCacheEntry = {
   generatedAt: string;
@@ -29,7 +53,7 @@ type BriefingCacheEntry = {
 
 const briefingStore = createMemoryStore<BriefingCacheEntry>({
   ttlMs: CACHE_TTL_MS,
-  maxEntries: 80,
+  maxEntries: 120,
 });
 
 function getWeekRangeLabel(): string {
@@ -41,41 +65,35 @@ function getWeekRangeLabel(): string {
   return `${fmt(weekAgo)} – ${fmt(now)}`;
 }
 
-function briefingCacheKey(
-  mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null,
-  stories: Story[]
-): string {
-  const slugs = stories
-    .slice(0, 8)
-    .map((s) => s.slug)
-    .join(",");
-  const profilePart = profile
-    ? createHash("sha256")
-        .update(
-          JSON.stringify({
-            mode,
-            interests: profile.interests,
-            career: profile.career,
-            focus: profile.focusType,
-          })
-        )
-        .digest("hex")
-        .slice(0, 12)
-    : "anon";
-  return `${mode}-${profilePart}-${createHash("sha256").update(slugs).digest("hex").slice(0, 16)}`;
-}
-
-function readBriefingCache(key: string): WeeklyBriefing | null {
+async function readBriefingCache(
+  key: string,
+  mode: WeeklyBriefingMode
+): Promise<WeeklyBriefing | null> {
   const entry = briefingStore.get(key);
-  return entry?.briefing ?? null;
+  const memBriefing = entry?.briefing;
+  if (memBriefing?.mode === mode) {
+    return memBriefing;
+  }
+
+  const persisted = await readPersistedWeeklyBriefing(key);
+  if (!persisted || persisted.mode !== mode) return null;
+
+  briefingStore.set(key, {
+    generatedAt: new Date().toISOString(),
+    briefing: persisted,
+  });
+  return persisted;
 }
 
-function writeBriefingCache(key: string, briefing: WeeklyBriefing): void {
+async function writeBriefingCache(
+  key: string,
+  briefing: WeeklyBriefing
+): Promise<void> {
   briefingStore.set(key, {
     generatedAt: new Date().toISOString(),
     briefing,
   });
+  await writePersistedWeeklyBriefing(key, briefing);
 }
 
 function selectStoriesForMode(
@@ -83,62 +101,34 @@ function selectStoriesForMode(
   mode: WeeklyBriefingMode,
   profile: OnboardingProfile | null
 ): Story[] {
-  const weekMs = 7 * 24 * 60 * 60 * 1000;
-  const cutoff = Date.now() - weekMs;
-  const recent = stories.filter(
-    (s) => new Date(s.publishedAt).getTime() >= cutoff
-  );
-  const pool = recent.length >= 3 ? recent : stories;
+  const base =
+    mode === "for-you" && profile?.completed
+      ? rankStoriesForUser(stories, profile)
+      : rankStoriesGlobal(stories);
 
-  if (mode === "global") {
-    return rankStoriesGlobal(pool).slice(0, 8);
-  }
-
-  if (!profile) return pool.slice(0, 8);
-
-  return [...pool]
-    .sort(
-      (a, b) =>
-        computeUserRelevanceScore(b, profile) -
-        computeUserRelevanceScore(a, profile)
-    )
-    .slice(0, 8);
+  return selectWeeklyStrategicPool(base, 12, profile);
 }
 
 function buildSyncBriefing(
   stories: Story[],
   mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
+  profile: OnboardingProfile | null,
+  aiError?: string
 ): WeeklyBriefing {
   const selected = selectStoriesForMode(stories, mode, profile);
-  const headlines = selected.map((s) => s.headline).slice(0, 4);
-  const categories = [...new Set(selected.map((s) => s.category))].slice(0, 2);
-  const theme =
-    categories.length > 0
-      ? categories.map((c) => getCategoryLabel(c).toLowerCase()).join(" and ")
-      : "global developments";
 
-  if (mode === "for-you" && profile) {
-    const career = profile.career ?? "your role";
-    const interests =
-      profile.interests.length > 0
-        ? profile.interests.join(", ")
-        : "your interests";
-
-    return {
-      mode,
-      weekLabel: getWeekRangeLabel(),
-      headline: `Your week in ${theme}.`,
-      summary: `From your lens as a ${career} tracking ${interests}, the desk surfaced ${selected.length} stories that matter most to your briefing. Leading threads include: ${headlines.slice(0, 2).join("; ")}. Prioritize what changes decisions you own; treat the rest as peripheral scan.`,
-      keySignal: deriveKeySignal(selected),
-    };
-  }
+  const base = {
+    weekLabel: getWeekRangeLabel(),
+    generatedBy: "fallback" as const,
+    aiError,
+    openaiError: aiError,
+  };
 
   return {
+    ...base,
     mode,
-    weekLabel: getWeekRangeLabel(),
-    headline: `Global intelligence: ${theme}.`,
-    summary: `This week's highest-signal global coverage centers on ${theme}. Key headlines: ${headlines.slice(0, 2).join("; ")}. The desk weighted editorial importance and recency — not every headline warrants action.`,
+    headline: deriveFallbackHeadline(selected, mode, profile),
+    summary: deriveFallbackSummary(selected, mode, profile),
     keySignal: deriveKeySignal(selected),
   };
 }
@@ -147,106 +137,106 @@ async function buildAIBriefing(
   stories: Story[],
   mode: WeeklyBriefingMode,
   profile: OnboardingProfile | null
-): Promise<WeeklyBriefing | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-
+): Promise<{ briefing: WeeklyBriefing | null; error?: string }> {
   const selected = selectStoriesForMode(stories, mode, profile);
-  const storyLines = selected
-    .map(
-      (s) =>
-        `- [${getCategoryLabel(s.category)}] ${s.headline} (${s.source}): ${s.summary.slice(0, 120)}`
-    )
-    .join("\n");
+  const withBodies = await Promise.all(
+    selected.map((s) => ensureStoryArticleBody(s))
+  );
+  const { system, user } = buildWeeklyBriefingPrompt(withBodies, mode, profile);
 
-  const modeInstruction =
-    mode === "for-you" && profile
-      ? `Write for THIS reader: career=${profile.career}, interests=${profile.interests.join(", ")}, focus=${profile.focusType}.`
-      : "Write for a global executive reader — most important stories worldwide this week.";
+  const provider = getAIProvider();
+  const weekLabel = getWeekRangeLabel();
+  const result = await callAIJson({
+    label: `Weekly briefing · ${mode}`,
+    system,
+    user,
+    temperature: 0.3,
+    maxTokens: 950,
+    responseFormat: "tags",
+    parse: (content) =>
+      parseWeeklyBriefingResponse(content, mode, selected, weekLabel, profile),
+  });
 
-  try {
-    const res = await fetch(OPENAI_API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-        temperature: 0.45,
-        max_tokens: 400,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content:
-              "Weekly intelligence editor. Calm, strategic, concise. JSON only.",
-          },
-          {
-            role: "user",
-            content: `${modeInstruction}
-
-Stories this week:
-${storyLines}
-
-Return JSON:
-{
-  "headline": "short editorial headline",
-  "summary": "2-3 sentences — synthesize themes from THESE stories only",
-  "keySignal": "1 sentence — dominant theme OR key signal headline (specific, not generic)"
-}`,
-          },
-        ],
-      }),
-    });
-
-    const data = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) return null;
-
-    const parsed = JSON.parse(content) as {
-      headline?: string;
-      summary?: string;
-      keySignal?: string;
-      editorsNote?: string;
-    };
-
-    if (!parsed.headline || !parsed.summary) return null;
-
-    const keySignal =
-      parsed.keySignal?.trim() ||
-      parsed.editorsNote?.trim() ||
-      deriveKeySignal(selected);
-
-    return {
-      mode,
-      weekLabel: getWeekRangeLabel(),
-      headline: parsed.headline.slice(0, 120),
-      summary: parsed.summary.slice(0, 500),
-      keySignal: keySignal.slice(0, 220),
-    };
-  } catch {
-    return null;
+  if (!result.ok) {
+    console.warn(
+      `[${provider.toUpperCase()}] Weekly briefing fallback for ${mode} — reason: ${result.error}`
+    );
+    return { briefing: null, error: result.error };
   }
+
+  const briefing = result.data;
+  if (briefing.mode !== mode) {
+    return {
+      briefing: null,
+      error: `${provider} returned wrong briefing mode`,
+    };
+  }
+  return { briefing };
 }
+
+export type ResolveWeeklyBriefingOptions = {
+  /** Bypass cache — used only for manual intelligence refresh. */
+  force?: boolean;
+};
 
 export async function resolveWeeklyBriefing(
   stories: Story[],
   mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
+  profile: OnboardingProfile | null,
+  options?: ResolveWeeklyBriefingOptions
 ): Promise<WeeklyBriefing> {
   const selected = selectStoriesForMode(stories, mode, profile);
-  const cacheKey = briefingCacheKey(mode, profile, selected);
+  const cacheKey = weeklyBriefingCacheKey(
+    mode,
+    profile,
+    selected.map((s) => s.slug)
+  );
 
-  const cached = readBriefingCache(cacheKey);
-  if (cached) return cached;
+  if (!options?.force) {
+    const platform = await readPlatformIntelligenceSnapshot();
+    const platformBriefing = platform?.briefings?.[mode];
+    if (platformBriefing && platformBriefing.mode === mode) {
+      return platformBriefing;
+    }
 
-  const ai = await buildAIBriefing(stories, mode, profile);
-  const briefing =
-    ai ?? buildSyncBriefing(stories, mode, profile);
+    const cached = await readBriefingCache(cacheKey, mode);
+    if (cached) return cached;
 
-  writeBriefingCache(cacheKey, briefing);
-  return briefing;
+    return buildSyncBriefing(stories, mode, profile);
+  }
+
+  if (!isAIConfigured()) {
+    const provider = getAIProvider();
+    const keyName =
+      provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+    const offline = buildSyncBriefing(
+      stories,
+      mode,
+      profile,
+      `${keyName} is not configured`
+    );
+    await writeBriefingCache(cacheKey, offline);
+    return offline;
+  }
+
+  const { briefing: ai, error: aiError } = await buildAIBriefing(
+    stories,
+    mode,
+    profile
+  );
+  if (ai) {
+    await writeBriefingCache(cacheKey, ai);
+    return ai;
+  }
+
+  const provider = getAIProvider();
+  const lastError =
+    aiError ??
+    `${provider} weekly briefing failed (see server logs for [${provider.toUpperCase()}] lines)`;
+
+  if (!isAIFallbackAllowed()) {
+    throw new Error(lastError);
+  }
+
+  return buildSyncBriefing(stories, mode, profile, lastError);
 }

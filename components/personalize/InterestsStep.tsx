@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
 import {
   Brain,
   LineChart,
@@ -15,7 +13,8 @@ import {
 } from "lucide-react";
 import { OnboardingCard } from "@/components/OnboardingCard";
 import { Button } from "@/components/ui/button";
-import { getOnboardingProfile, setInterestsAsync } from "@/lib/onboarding";
+import { useAdvanceOnboarding } from "@/components/personalize/useAdvanceOnboarding";
+import { getOnboardingProfile } from "@/lib/onboarding";
 import { getPersonalizeRoutes, type PersonalizeFlow } from "@/lib/personalize/routes";
 
 const interestOptions = [
@@ -35,13 +34,11 @@ interface InterestsStepProps {
 }
 
 export function InterestsStep({ userId, flow }: InterestsStepProps) {
-  const router = useRouter();
-  const { user } = useUser();
   const routes = getPersonalizeRoutes(flow);
+  const { advance, saving, error } = useAdvanceOnboarding();
   const [selected, setSelected] = useState(
     () => getOnboardingProfile(userId).interests
   );
-  const [saving, setSaving] = useState(false);
 
   const toggle = (id: string) => {
     setSelected((prev) =>
@@ -49,14 +46,13 @@ export function InterestsStep({ userId, flow }: InterestsStepProps) {
     );
   };
 
-  const continue_ = async () => {
+  const continue_ = () => {
     if (selected.length === 0) return;
-    setSaving(true);
-    await setInterestsAsync(selected, userId);
-    await user?.reload();
-    setSaving(false);
-    router.push(routes.career);
-    router.refresh();
+    void advance({
+      userId,
+      partial: { interests: selected },
+      nextPath: routes.career,
+    });
   };
 
   return (
@@ -73,10 +69,13 @@ export function InterestsStep({ userId, flow }: InterestsStepProps) {
           />
         ))}
       </div>
+      {error && (
+        <p className="text-center text-sm text-red-400">{error}</p>
+      )}
       <Button
         className="w-full rounded-full bg-white text-zinc-950 hover:bg-zinc-200"
         disabled={selected.length === 0 || saving}
-        onClick={() => void continue_()}
+        onClick={continue_}
       >
         {saving ? "Saving…" : "Continue"}
       </Button>

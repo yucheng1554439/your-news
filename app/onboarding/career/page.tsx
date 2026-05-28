@@ -1,13 +1,14 @@
 "use client";
 
+import { useUser } from "@clerk/nextjs";
 import { OnboardingLayout } from "@/components/OnboardingLayout";
 import { CareerStep } from "@/components/personalize/CareerStep";
-import { useOnboardingSync } from "@/hooks/use-onboarding-sync";
 
 export default function CareerPage() {
-  const { synced, userId } = useOnboardingSync();
+  const { isLoaded, user } = useUser();
+  const userId = user?.id;
 
-  if (!synced || !userId) {
+  if (!isLoaded || !userId) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-950">
         <div className="h-6 w-6 animate-pulse rounded-full border border-white/20 border-t-white" />
@@ -23,7 +24,7 @@ export default function CareerPage() {
       subtitle="We'll tune signal relevance to your professional lens."
       backHref="/onboarding/interests"
     >
-      <CareerStep key={userId} userId={userId} flow="onboarding" />
+      <CareerStep userId={userId} flow="onboarding" />
     </OnboardingLayout>
   );
 }

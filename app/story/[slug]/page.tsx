@@ -3,13 +3,16 @@ import { notFound } from "next/navigation";
 import { Navbar } from "@/components/Navbar";
 import { StoryCard } from "@/components/StoryCard";
 import { StoryImage } from "@/components/StoryImage";
-import { StoryIntelligence } from "@/components/StoryIntelligence";
+import { SaveStoryButton } from "@/components/SaveStoryButton";
+import { StoryIntelligenceAsync } from "@/components/StoryIntelligenceAsync";
 import { ReadOriginalSource } from "@/components/ReadOriginalSource";
 import { getCategoryLabel } from "@/lib/data/categories";
 import { getOnboardingFromClerk } from "@/app/actions/onboarding";
 import { StoryDate } from "@/components/StoryDate";
 import { getRelatedStories, getStoryBySlug } from "@/lib/data/stories";
 import { isCriticalForDisplay } from "@/lib/importance-scoring";
+import { isCriticalForUser } from "@/lib/personalization/importance";
+import { signalsFromProfile } from "@/lib/personalization/signals";
 
 interface StoryPageProps {
   params: Promise<{ slug: string }>;
@@ -20,15 +23,18 @@ export const dynamic = "force-dynamic";
 export default async function StoryPage({ params }: StoryPageProps) {
   const { slug } = await params;
   const profile = await getOnboardingFromClerk();
-  const story = await getStoryBySlug(slug, { profile });
+  const story = await getStoryBySlug(slug, { profile, enrich: false });
 
   if (!story) {
     notFound();
   }
 
-  const related = await getRelatedStories(slug, 4, { profile });
-  const showCritical = isCriticalForDisplay(story);
-  const whyItMattersToYou = story.whyItMattersToYou ?? null;
+  const related = await getRelatedStories(slug, 4, { profile, enrich: false });
+  const signals = profile ? signalsFromProfile(profile) : null;
+  const showCritical =
+    signals && profile?.completed
+      ? isCriticalForUser(story, signals)
+      : isCriticalForDisplay(story);
 
   return (
     <div className="min-h-screen bg-zinc-950">
@@ -44,7 +50,10 @@ export default async function StoryPage({ params }: StoryPageProps) {
             sizes="(max-width: 768px) 100vw, 768px"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent" />
-          <div className="absolute inset-x-0 top-0 flex items-start justify-between p-4 sm:p-5">
+          <div className="absolute right-4 top-4 z-10 sm:right-5 sm:top-5">
+            <SaveStoryButton story={story} size="md" />
+          </div>
+          <div className="absolute inset-x-0 top-0 flex items-start justify-between p-4 pr-16 sm:p-5 sm:pr-20">
             <span className="rounded-full border border-white/10 bg-zinc-950/60 px-3 py-1 text-xs text-zinc-300 backdrop-blur-md">
               {getCategoryLabel(story.category)}
             </span>
@@ -70,10 +79,7 @@ export default async function StoryPage({ params }: StoryPageProps) {
           </p>
         </header>
 
-        <StoryIntelligence
-          story={story}
-          whyItMattersToYou={whyItMattersToYou}
-        />
+        <StoryIntelligenceAsync story={story} profile={profile} />
 
         <ReadOriginalSource
           sourceUrl={story.sourceUrl}

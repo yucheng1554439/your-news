@@ -43,7 +43,7 @@ export async function enrichStories(
     profile?: OnboardingProfile | null;
   }
 ): Promise<Story[]> {
-  const limit = options?.limit ?? 6;
+  const limit = options?.limit ?? 8;
   if (stories.length === 0) return stories;
 
   const toEnrich = stories.slice(0, limit);

@@ -72,10 +72,8 @@ export function isTrustedSource(sourceName: string): boolean {
   );
 }
 
-/** Higher = more trusted for ranking tie-breaks. */
-export function trustedSourceBoost(sourceName: string): number {
-  return isTrustedSource(sourceName) ? 3 : 0;
-}
+/** Higher = more trusted for ranking tie-breaks (tier-weighted). */
+export { trustedSourceBoost } from "@/lib/editorial/source-authority";
 
 export function filterTrustedArticles<T extends { source: { name?: string | null } }>(
   articles: T[],

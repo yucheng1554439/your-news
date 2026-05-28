@@ -2,18 +2,11 @@
 
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fetchWeeklyBriefing } from "@/app/actions/briefing";
 import { HeroSection } from "@/components/HeroSection";
+import { IntelligenceRefreshControl } from "@/components/IntelligenceRefreshControl";
 import { CategoryFilterBar } from "@/components/CategoryFilterBar";
-import { FeedSection } from "@/components/FeedSection";
 import { FeedStatus } from "@/components/FeedStatus";
 import { StoryCard } from "@/components/StoryCard";
-import type { FeedMode } from "@/components/ToggleTabs";
-import { getFeaturedStory } from "@/lib/data/featured";
-import {
-  buildWeeklyBriefingSync,
-  type WeeklyBriefing,
-} from "@/lib/weekly-briefing";
 import {
   filterStoriesByCategory,
   type TopStoryCategory,
@@ -23,31 +16,55 @@ import {
   getPersonalizedStories,
 } from "@/lib/personalization";
 import { useOnboardingSync } from "@/hooks/use-onboarding-sync";
+import { useWeeklyBriefing } from "@/hooks/use-weekly-briefing";
+import { getFeaturedStory } from "@/lib/data/featured";
+import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
+import type { WeeklyBriefing } from "@/lib/weekly-briefing";
 import type { OnboardingProfile, Story } from "@/lib/types";
-
-const FEED_REFRESH_MS = 90_000;
 
 interface DashboardProps {
   stories: Story[];
+  briefings?: Partial<Record<WeeklyBriefingMode, WeeklyBriefing>>;
+  intelligenceUpdatedAt?: number | null;
+  storiesFetchedAt?: number;
+  hasIntelligenceSnapshot?: boolean;
+  persistenceConfigured?: boolean;
   feedError?: string | null;
   feedStale?: boolean;
+  feedLiveDelayed?: boolean;
+  cacheStatus?: "fresh" | "stale" | "empty";
+  fromPersistentStore?: boolean;
   profileFromServer?: OnboardingProfile | null;
 }
 
 export function Dashboard({
   stories,
+  briefings = {},
+  intelligenceUpdatedAt = null,
+  storiesFetchedAt,
+  hasIntelligenceSnapshot = false,
+  persistenceConfigured = false,
   feedError,
   feedStale,
+  feedLiveDelayed,
+  cacheStatus,
+  fromPersistentStore,
   profileFromServer,
 }: DashboardProps) {
   const router = useRouter();
   const { synced, isOnboardingComplete, profile: syncedProfile } =
     useOnboardingSync();
-  const [feedMode, setFeedMode] = useState<FeedMode>("personalized");
   const [topCategory, setTopCategory] = useState<TopStoryCategory>("all");
-  const [briefing, setBriefing] = useState<WeeklyBriefing | null>(null);
+  const [isRefreshingIntelligence, setIsRefreshingIntelligence] =
+    useState(false);
 
   const profile = syncedProfile ?? profileFromServer ?? null;
+
+  const { feedMode, handleFeedModeChange, heroBriefing } = useWeeklyBriefing(
+    stories,
+    profile,
+    briefings
+  );
 
   useEffect(() => {
     if (!synced) return;
@@ -63,55 +80,24 @@ export function Dashboard({
       : getGlobalStories(stories);
   }, [profile, feedMode, stories]);
 
-  const briefingMode = feedMode === "personalized" ? "for-you" : "global";
-
   useEffect(() => {
     startTransition(() => setTopCategory("all"));
   }, [feedMode]);
 
-  useEffect(() => {
-    if (!profile || stories.length === 0) return;
-
-    let cancelled = false;
-    startTransition(() => {
-      setBriefing(buildWeeklyBriefingSync(stories, briefingMode, profile));
-    });
-
-    void fetchWeeklyBriefing(stories, briefingMode, profile).then(
-      (resolved) => {
-        if (!cancelled) {
-          startTransition(() => setBriefing(resolved));
-        }
-      }
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [stories, briefingMode, profile]);
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      router.refresh();
-    }, FEED_REFRESH_MS);
-    return () => window.clearInterval(id);
-  }, [router]);
-
-  const featured = getFeaturedStory(
-    feedStories.length > 0 ? feedStories : stories
-  );
+  const featured =
+    getFeaturedStory(
+      feedStories.length > 0 ? feedStories : stories,
+      profile,
+      feedMode === "personalized"
+    ) ??
+    feedStories[0] ??
+    stories[0];
   const relevant = feedStories.slice(0, 4);
   const topStoriesPool = useMemo(
     () => filterStoriesByCategory(feedStories, topCategory),
     [feedStories, topCategory]
   );
   const topStories = topStoriesPool.slice(0, 6);
-  const markets = feedStories
-    .filter((s) => s.category === "markets")
-    .slice(0, 3);
-  const aiTech = feedStories
-    .filter((s) => s.category === "ai" || s.category === "technology")
-    .slice(0, 3);
 
   if (!synced || !isOnboardingComplete || !profile) {
     return (
@@ -121,29 +107,52 @@ export function Dashboard({
     );
   }
 
-  if (!featured && stories.length === 0) {
+  if (stories.length === 0) {
     return (
       <div className="space-y-6">
-        <FeedStatus error={feedError ?? "No stories available right now."} />
-        <p className="text-center text-sm text-zinc-500">
-          Check your News API key in .env.local and try again shortly.
-        </p>
+        <FeedStatus
+          error={
+            feedError ??
+            "No cached stories yet. Add Upstash Redis (or wait for first successful ingest) so the feed survives rate limits."
+          }
+          liveDelayed={feedLiveDelayed}
+          cacheStatus={cacheStatus}
+        />
+        <div className="flex justify-center">
+          <IntelligenceRefreshControl
+            lastUpdated={intelligenceUpdatedAt}
+            storiesFetchedAt={storiesFetchedAt}
+            hasSnapshot={hasIntelligenceSnapshot}
+            persistenceConfigured={persistenceConfigured}
+          />
+        </div>
       </div>
     );
   }
 
-  const heroBriefing =
-    briefing ??
-    buildWeeklyBriefingSync(stories, briefingMode, profile);
+  const usePersonalizedBadges =
+    feedMode === "personalized" && Boolean(profile.completed);
 
   return (
     <div className="space-y-10 pb-16">
-      <FeedStatus error={feedError} stale={feedStale} />
+      <FeedStatus
+        error={feedError}
+        stale={feedStale}
+        liveDelayed={feedLiveDelayed}
+        cacheStatus={cacheStatus}
+        fromPersistentStore={fromPersistentStore}
+      />
 
       <HeroSection
         feedMode={feedMode}
-        onFeedModeChange={setFeedMode}
+        onFeedModeChange={handleFeedModeChange}
         briefing={heroBriefing}
+        lastUpdated={intelligenceUpdatedAt}
+        storiesFetchedAt={storiesFetchedAt}
+        hasIntelligenceSnapshot={hasIntelligenceSnapshot}
+        persistenceConfigured={persistenceConfigured}
+        isRefreshing={isRefreshingIntelligence}
+        onRefreshingChange={setIsRefreshingIntelligence}
       />
 
       {featured && (
@@ -151,19 +160,39 @@ export function Dashboard({
           <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
             Lead Story
           </p>
-          <StoryCard story={featured} variant="featured" />
+          <StoryCard
+            story={featured}
+            variant="featured"
+            usePersonalizedImportance={usePersonalizedBadges}
+          />
         </section>
       )}
 
-      <FeedSection
-        title="Relevant to You"
-        subtitle={
-          feedMode === "personalized"
-            ? "Ranked by your interests and career focus"
-            : "Latest high-signal stories worldwide"
-        }
-        stories={relevant}
-      />
+      {relevant.length > 0 && (
+        <section className="space-y-5">
+          <div>
+            <h2 className="font-serif text-xl text-white sm:text-2xl">
+              {feedMode === "personalized"
+                ? "Relevant to You"
+                : "Global Signal"}
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              {feedMode === "personalized"
+                ? "Ranked for your career, interests, and focus"
+                : "Highest editorial weight worldwide"}
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {relevant.map((story) => (
+              <StoryCard
+                key={story.slug}
+                story={story}
+                usePersonalizedImportance={usePersonalizedBadges}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="space-y-5">
         <div>
@@ -171,14 +200,20 @@ export function Dashboard({
             Top Stories
           </h2>
           <p className="mt-1 text-sm text-zinc-400">
-            What ambitious readers are tracking
+            {feedMode === "personalized"
+              ? "Your intelligent feed — filter by domain"
+              : "Global desk — filter by domain"}
           </p>
         </div>
         <CategoryFilterBar value={topCategory} onChange={setTopCategory} />
         {topStories.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {topStories.map((story) => (
-              <StoryCard key={story.slug} story={story} />
+              <StoryCard
+                key={story.slug}
+                story={story}
+                usePersonalizedImportance={usePersonalizedBadges}
+              />
             ))}
           </div>
         ) : (
@@ -188,18 +223,6 @@ export function Dashboard({
           </p>
         )}
       </section>
-
-      <FeedSection
-        title="Markets"
-        subtitle="Macro, policy, and capital flows"
-        stories={markets}
-      />
-
-      <FeedSection
-        title="AI & Technology"
-        subtitle="Infrastructure, models, and the frontier"
-        stories={aiTech}
-      />
     </div>
   );
 }

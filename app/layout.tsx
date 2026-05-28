@@ -7,6 +7,7 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
+import { Providers } from "@/components/Providers";
 import { clerkAppearance } from "@/lib/clerk-appearance";
 import "./globals.css";
 
@@ -44,6 +45,7 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col font-sans">
         <ClerkProvider appearance={clerkAppearance}>
+          <Providers>
           <header className="sr-only" aria-hidden>
             <Show when="signed-out">
               <SignInButton />
@@ -54,6 +56,7 @@ export default function RootLayout({
             </Show>
           </header>
           {children}
+          </Providers>
         </ClerkProvider>
       </body>
     </html>

@@ -1,75 +1,105 @@
 import "server-only";
 
+import {
+  articleBodyFingerprint,
+  ensureStoryArticleBody,
+} from "@/lib/extraction/resolve-body";
 import { applyIntelligenceToStory } from "@/lib/intelligence/apply";
 import {
   contentFingerprint,
   readIntelligenceCache,
   writeIntelligenceCache,
 } from "@/lib/intelligence/cache";
-import { generateCoreIntelligenceOpenAI } from "@/lib/intelligence/core-openai";
 import { buildFallbackIntelligence } from "@/lib/intelligence/fallback";
-import { isOpenAIConfigured } from "@/lib/intelligence/openai";
-import { generatePersonalizedIntelligenceOpenAI } from "@/lib/intelligence/personalized-openai";
+import {
+  getAIProvider,
+  isAIConfigured,
+  isAIFallbackAllowed,
+} from "@/lib/intelligence/provider";
 import {
   hashProfile,
-  hasPersonalizationProfile,
+  canGeneratePersonalizedSection,
 } from "@/lib/intelligence/profile-context";
+import { generateUnifiedIntelligence } from "@/lib/intelligence/unified-intelligence";
 import type { StoryIntelligencePackage } from "@/lib/intelligence/types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 export type { StoryIntelligencePackage } from "@/lib/intelligence/types";
+
+function logFallback(slug: string, reason: string): void {
+  const provider = getAIProvider();
+  console.warn(
+    `[${provider.toUpperCase()}] Story intelligence fallback for ${slug} — reason: ${reason}`
+  );
+}
 
 export async function resolveStoryIntelligence(
   story: Story,
   profile: OnboardingProfile | null = null
 ): Promise<StoryIntelligencePackage> {
   const profileHash = hashProfile(
-    profile && hasPersonalizationProfile(profile) ? profile : null
+    profile && canGeneratePersonalizedSection(profile) ? profile : null
   );
+  const storyWithBody = await ensureStoryArticleBody(story);
+
   const fingerprint = contentFingerprint(
-    story.headline,
-    story.publishedAt,
-    story.rawExcerpt
+    storyWithBody.headline,
+    storyWithBody.publishedAt,
+    storyWithBody.articleBody ?? storyWithBody.rawExcerpt,
+    articleBodyFingerprint(storyWithBody)
   );
 
   const cached = await readIntelligenceCache(
-    story.slug,
+    storyWithBody.slug,
     profileHash,
     fingerprint
   );
   if (cached) return cached;
 
-  let pkg: StoryIntelligencePackage;
-
-  if (isOpenAIConfigured()) {
-    const coreResult = await generateCoreIntelligenceOpenAI(story, profileHash);
-
-    if (coreResult.ok) {
-      pkg = { ...coreResult.core, profileFingerprint: profileHash };
-
-      if (profile && hasPersonalizationProfile(profile)) {
-        const personalized = await generatePersonalizedIntelligenceOpenAI(
-          story,
-          profile,
-          pkg.theBriefing,
-          pkg.whyItMatters
-        );
-        if (personalized.ok) {
-          pkg.whyItMattersToYou = personalized.text;
-        } else {
-          const fallback = buildFallbackIntelligence(story, profile, profileHash);
-          pkg.whyItMattersToYou = fallback.whyItMattersToYou;
-        }
-      }
-    } else {
-      pkg = buildFallbackIntelligence(story, profile, profileHash);
-    }
-  } else {
-    pkg = buildFallbackIntelligence(story, profile, profileHash);
+  if (!isAIConfigured()) {
+    const provider = getAIProvider();
+    const keyName =
+      provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+    logFallback(storyWithBody.slug, `${keyName} not configured`);
+    const pkg = buildFallbackIntelligence(storyWithBody, profile, profileHash);
+    await writeIntelligenceCache(
+      storyWithBody.slug,
+      profileHash,
+      fingerprint,
+      pkg
+    );
+    return pkg;
   }
 
-  await writeIntelligenceCache(story.slug, profileHash, fingerprint, pkg);
-  return pkg;
+  const ai = await generateUnifiedIntelligence(
+    storyWithBody,
+    profile,
+    profileHash
+  );
+
+  if (ai.ok) {
+    await writeIntelligenceCache(
+      storyWithBody.slug,
+      profileHash,
+      fingerprint,
+      ai.package
+    );
+    return ai.package;
+  }
+
+  logFallback(storyWithBody.slug, ai.error);
+
+  if (!isAIFallbackAllowed()) {
+    throw new Error(
+      `${getAIProvider()} story intelligence failed: ${ai.error}`
+    );
+  }
+
+  return {
+    ...buildFallbackIntelligence(storyWithBody, profile, profileHash),
+    aiError: ai.error,
+    openaiError: ai.error,
+  };
 }
 
 export async function enrichStoryWithIntelligence(

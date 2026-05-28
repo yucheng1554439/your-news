@@ -1,15 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
 import { Layers, Zap, BookOpen } from "lucide-react";
 import { OnboardingCard } from "@/components/OnboardingCard";
 import { Button } from "@/components/ui/button";
-import {
-  getOnboardingProfile,
-  saveOnboardingProfileAsync,
-} from "@/lib/onboarding";
+import { useAdvanceOnboarding } from "@/components/personalize/useAdvanceOnboarding";
+import { getOnboardingProfile } from "@/lib/onboarding";
 import { getPersonalizeRoutes, type PersonalizeFlow } from "@/lib/personalize/routes";
 import type { FocusType } from "@/lib/types";
 
@@ -45,22 +41,19 @@ interface FocusStepProps {
 }
 
 export function FocusStep({ userId, flow }: FocusStepProps) {
-  const router = useRouter();
-  const { user } = useUser();
   const routes = getPersonalizeRoutes(flow);
+  const { advance, saving, error } = useAdvanceOnboarding();
   const [selected, setSelected] = useState<FocusType | null>(
     () => getOnboardingProfile(userId).focusType
   );
-  const [saving, setSaving] = useState(false);
 
-  const continue_ = async () => {
+  const continue_ = () => {
     if (!selected) return;
-    setSaving(true);
-    await saveOnboardingProfileAsync({ focusType: selected }, userId);
-    await user?.reload();
-    setSaving(false);
-    router.push(routes.tone);
-    router.refresh();
+    void advance({
+      userId,
+      partial: { focusType: selected },
+      nextPath: routes.tone,
+    });
   };
 
   return (
@@ -78,10 +71,13 @@ export function FocusStep({ userId, flow }: FocusStepProps) {
           />
         ))}
       </div>
+      {error && (
+        <p className="text-center text-sm text-red-400">{error}</p>
+      )}
       <Button
         className="w-full rounded-full bg-white text-zinc-950 hover:bg-zinc-200"
         disabled={!selected || saving}
-        onClick={() => void continue_()}
+        onClick={continue_}
       >
         {saving ? "Saving…" : "Continue"}
       </Button>

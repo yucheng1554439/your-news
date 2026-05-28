@@ -60,7 +60,10 @@ export async function saveOnboardingProfileAsync(
   }
 
   if (userId) {
-    await saveOnboardingToClerk(updated);
+    const clerkResult = await saveOnboardingToClerk(updated);
+    if (!clerkResult.ok) {
+      throw new Error(clerkResult.error);
+    }
   }
 
   return updated;

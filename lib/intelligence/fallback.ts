@@ -1,20 +1,38 @@
 import { getCategoryLabel } from "@/lib/data/categories";
-import { hasPersonalizationProfile } from "@/lib/intelligence/profile-context";
+import { canGeneratePersonalizedSection } from "@/lib/intelligence/profile-context";
 import type { StoryIntelligencePackage } from "@/lib/intelligence/types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 function buildTheBriefing(story: Story): string {
-  const category = getCategoryLabel(story.category);
-  const source = story.rawExcerpt ?? story.summary;
-  return `${story.source} reports a developing ${category.toLowerCase()} story: ${source}`.slice(
-    0,
-    380
-  );
+  const excerpt = story.rawExcerpt ?? story.summary;
+  return excerpt.slice(0, 360);
+}
+
+function inferConsequenceDomain(story: Story): string {
+  const tags = story.tags;
+  if (tags.includes("markets") || tags.includes("investing")) {
+    return "prices, earnings expectations, and who gains or loses market share";
+  }
+  if (tags.includes("policy") || tags.includes("geopolitics")) {
+    return "regulatory timelines, trade routes, and government leverage";
+  }
+  if (tags.includes("ai") || tags.includes("semiconductors")) {
+    return "compute supply, product roadmaps, and who can ship faster";
+  }
+  if (tags.includes("energy")) {
+    return "power costs, commodity supply, and industrial capex";
+  }
+  if (tags.includes("cybersecurity")) {
+    return "incident response spend, vendor trust, and compliance deadlines";
+  }
+  return `how ${getCategoryLabel(story.category).toLowerCase()} players adjust plans and spending`;
 }
 
 function buildWhyItMatters(story: Story): string {
-  const category = getCategoryLabel(story.category);
-  return `Beyond the headline, this ${category.toLowerCase()} thread may influence policy expectations, capital allocation, and how institutions hedge uncertainty over the coming weeks. Watch whether follow-on reporting confirms a trend or a one-day narrative.`.slice(
+  const domain = inferConsequenceDomain(story);
+  const lead = (story.rawExcerpt ?? story.summary).split(/[.!?]/)[0]?.trim();
+  const hook = lead ? `${lead}. ` : "";
+  return `${hook}The strategic stake is ${domain} — institutions will rebalance before the narrative fully settles.`.slice(
     0,
     420
   );
@@ -24,30 +42,26 @@ function buildPersonalizedWhy(
   story: Story,
   profile: OnboardingProfile
 ): string {
-  const category = getCategoryLabel(story.category).toLowerCase();
-  const careerOpeners: Record<
-    NonNullable<OnboardingProfile["career"]>,
-    string
-  > = {
-    engineer: `For your engineering lens, this ${category} item matters if it changes build-vs-buy calculus, vendor risk, or the pace of automation in your stack.`,
-    investor: `For your investment lens, this ${category} development is a positioning question: does it reprice risk assets, alter sector leadership, or remain idiosyncratic noise?`,
-    founder: `For your founder lens, treat this ${category} story as a narrative and execution signal — it may affect fundraising tone, hiring plans, or competitive timing.`,
-    executive: `For your executive lens, this ${category} coverage is about institutional exposure: where it shows up in planning, board conversation, or external communications.`,
-    researcher: `For your research lens, this ${category} thread is worth tracking if it shifts evidence, funding priorities, or the policy boundary around your field.`,
+  const career = profile.career ?? "professional";
+  const domain = inferConsequenceDomain(story);
+  const interests =
+    profile.interests.length > 0
+      ? profile.interests.join(" and ")
+      : "your coverage areas";
+
+  const careerHook: Record<NonNullable<OnboardingProfile["career"]>, string> = {
+    investor: `For your portfolio lens on ${interests}, this feeds ${domain} — decide if you need to resize exposure before the next data print.`,
+    engineer: `For your engineering work on ${interests}, this pressures ${domain} — decide if roadmap, vendors, or hiring assumptions need updating this sprint.`,
+    founder: `For your company in ${interests}, this hits ${domain} — decide if pitch, pricing, or competitive messaging needs a refresh before your next customer cycle.`,
+    executive: `For your org focused on ${interests}, this affects ${domain} — assign an owner to quantify exposure within the week.`,
+    researcher: `For your research on ${interests}, this touches ${domain} — pull primary sources to test whether the claim holds up.`,
   };
 
-  const opener = profile.career
-    ? careerOpeners[profile.career]
-    : `Given your briefing setup, this ${category} story deserves a deliberate read.`;
+  const line = profile.career
+    ? careerHook[profile.career]
+    : `Given your focus on ${interests}, map how this changes a decision you own.`;
 
-  const focusNote =
-    profile.focusType === "breaking"
-      ? "Given your breaking-signal preference, treat this as queue-worthy until disconfirmed."
-      : profile.focusType === "depth"
-        ? "Given your depth preference, skim the headline only if time is constrained."
-        : "Fit this into your weekly scan unless it escalates.";
-
-  return `${opener} ${focusNote}`.slice(0, 500);
+  return `As a ${career}, ${line}`.slice(0, 480);
 }
 
 export function buildFallbackIntelligence(
@@ -55,24 +69,15 @@ export function buildFallbackIntelligence(
   profile: OnboardingProfile | null,
   profileFingerprint: string
 ): StoryIntelligencePackage {
-  const theBriefing = buildTheBriefing(story);
-  const whyItMatters = buildWhyItMatters(story);
-
   return {
-    theBriefing,
-    whyItMatters,
+    theBriefing: buildTheBriefing(story),
+    whyItMatters: buildWhyItMatters(story),
     whyItMattersToYou:
-      profile && hasPersonalizationProfile(profile)
+      profile && canGeneratePersonalizedSection(profile)
         ? buildPersonalizedWhy(story, profile)
         : undefined,
-    strategicImplications: story.economicImplications,
-    perspectives: `Operators, investors, and policymakers will read the same facts with different urgency — the split is usually between those who must act this quarter and those who can wait for confirmation.`,
-    marketRead:
-      story.category === "markets" || story.economicImplications
-        ? `Trading desks will look for confirmation in rates, credit spreads, and sector leaders before treating this as a durable repricing event.`
-        : undefined,
-    sourceLens: `${story.source} is one datapoint; compare wire services and trade press before treating framing as consensus.`,
     generatedAt: new Date().toISOString(),
     profileFingerprint,
+    generatedBy: "fallback",
   };
 }

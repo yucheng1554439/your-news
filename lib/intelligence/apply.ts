@@ -10,9 +10,13 @@ export function applyIntelligenceToStory(
     summary: pkg.theBriefing,
     whyItMatters: pkg.whyItMatters,
     whyItMattersToYou: pkg.whyItMattersToYou,
+    nextWatch: pkg.nextWatch,
     economicImplications: pkg.strategicImplications,
     perspectives: pkg.perspectives,
     marketReaction: pkg.marketRead,
     sourceContext: pkg.sourceLens,
+    intelligenceGeneratedBy: pkg.generatedBy,
+    intelligenceAiError: pkg.aiError ?? pkg.openaiError,
+    intelligenceOpenaiError: pkg.aiError ?? pkg.openaiError,
   };
 }

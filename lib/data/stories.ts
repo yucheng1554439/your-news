@@ -1,93 +1,125 @@
 import "server-only";
 
-import { unstable_noStore as noStore } from "next/cache";
-import { fetchLiveStories } from "@/lib/news";
+import { getEnrichedStoryFromSnapshot } from "@/lib/intelligence/platform-snapshot";
+import { attachPersonalizedImportance } from "@/lib/personalization/engine";
+import { getStoryPool, invalidateStoryPool } from "@/lib/news/story-pool";
+import { resolveStoryFromPool } from "@/lib/story-resolve";
 import { enrichStories, enrichStoryWithIntelligence } from "@/lib/summaries";
 import type { OnboardingProfile, Story, StoryCategory } from "@/lib/types";
+import type { StoryPoolStatus } from "@/lib/news/story-pool";
 
 export type StoriesResult = {
   stories: Story[];
   error: string | null;
   fromCache: boolean;
   fetchedAt: number;
+  /** fresh | stale | empty */
+  cacheStatus: StoryPoolStatus;
+  /** Serving cached pool while NewsAPI is delayed or rate-limited. */
+  liveDelayed: boolean;
+  fromPersistentStore: boolean;
 };
-
-let cachedRawStories: Story[] | null = null;
-let cachedError: string | null = null;
-let cacheTimestamp = 0;
-const CACHE_TTL_MS = 45 * 1000;
 
 export type GetStoriesOptions = {
   profile?: OnboardingProfile | null;
   userId?: string | null;
+  /** Admin/debug only — triggers NewsAPI ingest. */
   forceRefresh?: boolean;
+  /** When false (default), returns news fast without blocking on AI. */
+  enrich?: boolean;
 };
 
+/** @deprecated Use invalidateStoryPool */
 export function invalidateStoriesCache(): void {
-  cachedRawStories = null;
-  cacheTimestamp = 0;
+  invalidateStoryPool();
 }
 
-async function getRawStories(forceRefresh = false): Promise<{
-  stories: Story[];
-  error: string | null;
-  fromCache: boolean;
-  fetchedAt: number;
-}> {
-  noStore();
+function applyProfileRanking(
+  stories: Story[],
+  profile: OnboardingProfile | null
+): Story[] {
+  if (!profile?.completed) return stories;
+  return attachPersonalizedImportance(stories, profile);
+}
 
-  const now = Date.now();
-  if (
-    !forceRefresh &&
-    cachedRawStories &&
-    now - cacheTimestamp < CACHE_TTL_MS
-  ) {
-    return {
-      stories: cachedRawStories,
-      error: cachedError,
-      fromCache: true,
-      fetchedAt: cacheTimestamp,
-    };
-  }
+async function loadPool(forceRefresh = false) {
+  return getStoryPool({ forceRefresh });
+}
 
-  const { stories, error } = await fetchLiveStories();
+function mergeSnapshotIntelligence(base: Story, enriched: Story): Story {
+  return {
+    ...base,
+    summary: enriched.summary,
+    whyItMatters: enriched.whyItMatters,
+    whyItMattersToYou: enriched.whyItMattersToYou,
+    nextWatch: enriched.nextWatch,
+    economicImplications: enriched.economicImplications,
+    perspectives: enriched.perspectives,
+    marketReaction: enriched.marketReaction,
+    sourceContext: enriched.sourceContext,
+    intelligenceGeneratedBy: enriched.intelligenceGeneratedBy,
+    intelligenceAiError: enriched.intelligenceAiError,
+    intelligenceOpenaiError: enriched.intelligenceOpenaiError,
+  };
+}
 
-  if (stories.length === 0) {
-    cachedError = error;
-    if (cachedRawStories) {
-      return {
-        stories: cachedRawStories,
-        error,
-        fromCache: true,
-        fetchedAt: cacheTimestamp,
-      };
-    }
-    return { stories: [], error, fromCache: false, fetchedAt: now };
-  }
-
-  cachedRawStories = stories;
-  cachedError = error;
-  cacheTimestamp = now;
-
-  return { stories, error, fromCache: false, fetchedAt: now };
+async function withSnapshotIntelligence(story: Story): Promise<Story> {
+  const enriched = await getEnrichedStoryFromSnapshot(story.slug);
+  return enriched ? mergeSnapshotIntelligence(story, enriched) : story;
 }
 
 export async function getStories(
   options?: GetStoriesOptions
 ): Promise<StoriesResult> {
-  const { stories: raw, error, fromCache, fetchedAt } = await getRawStories(
-    options?.forceRefresh
-  );
-  if (raw.length === 0) {
-    return { stories: [], error, fromCache, fetchedAt };
+  const pool = await loadPool(options?.forceRefresh);
+
+  if (pool.stories.length === 0) {
+    return {
+      stories: [],
+      error: pool.error,
+      fromCache: pool.fromCache,
+      fetchedAt: pool.fetchedAt,
+      cacheStatus: pool.status,
+      liveDelayed: pool.liveDelayed,
+      fromPersistentStore: pool.fromPersistentStore,
+    };
   }
 
-  const enriched = await enrichStories(raw, {
-    limit: options?.profile?.completed ? 8 : 4,
-    profile: options?.profile ?? null,
+  const profile = options?.profile ?? null;
+  const shouldEnrich = options?.enrich === true;
+
+  if (!shouldEnrich) {
+    return {
+      stories: applyProfileRanking(pool.stories, profile),
+      error: pool.error,
+      fromCache: pool.fromCache,
+      fetchedAt: pool.fetchedAt,
+      cacheStatus: pool.status,
+      liveDelayed: pool.liveDelayed,
+      fromPersistentStore: pool.fromPersistentStore,
+    };
+  }
+
+  const enrichLimit = profile?.completed
+    ? 10
+    : profile?.interests?.length
+      ? 6
+      : 4;
+
+  const enriched = await enrichStories(pool.stories, {
+    limit: enrichLimit,
+    profile,
   });
 
-  return { stories: enriched, error, fromCache, fetchedAt };
+  return {
+    stories: applyProfileRanking(enriched, profile),
+    error: pool.error,
+    fromCache: pool.fromCache,
+    fetchedAt: pool.fetchedAt,
+    cacheStatus: pool.status,
+    liveDelayed: pool.liveDelayed,
+    fromPersistentStore: pool.fromPersistentStore,
+  };
 }
 
 export async function getAllStories(
@@ -97,14 +129,42 @@ export async function getAllStories(
   return stories;
 }
 
+export async function getRawStoryBySlug(
+  slug: string,
+  _forceRefresh = false
+): Promise<Story | undefined> {
+  const pool = await loadPool(false);
+  return resolveStoryFromPool(slug, pool.stories);
+}
+
 export async function getStoryBySlug(
   slug: string,
   options?: GetStoriesOptions
 ): Promise<Story | undefined> {
-  const { stories: raw } = await getRawStories(options?.forceRefresh);
-  const story = raw.find((s) => s.slug === slug);
+  const pool = await loadPool(options?.forceRefresh);
+  const story = resolveStoryFromPool(slug, pool.stories);
   if (!story) return undefined;
-  return enrichStoryWithIntelligence(story, options?.profile ?? null);
+
+  let merged = await withSnapshotIntelligence(story);
+
+  if (options?.enrich !== true) {
+    const profile = options?.profile ?? null;
+    if (profile?.completed) {
+      const [scored] = attachPersonalizedImportance([merged], profile);
+      return scored;
+    }
+    return merged;
+  }
+
+  if (merged.intelligenceGeneratedBy) {
+    return merged;
+  }
+
+  const { ensureStoryArticleBody } = await import(
+    "@/lib/extraction/resolve-body"
+  );
+  const withBody = await ensureStoryArticleBody(merged);
+  return enrichStoryWithIntelligence(withBody, options?.profile ?? null);
 }
 
 export async function getRelatedStories(
@@ -112,20 +172,22 @@ export async function getRelatedStories(
   limit = 4,
   options?: GetStoriesOptions
 ): Promise<Story[]> {
-  const stories = await getAllStories(options);
-  const current = stories.find((s) => s.slug === slug);
-  if (!current) return stories.slice(0, limit);
+  const pool = await loadPool(options?.forceRefresh);
+  const current = resolveStoryFromPool(slug, pool.stories);
+  if (!current) return pool.stories.slice(0, limit);
 
-  return stories
-    .filter((s) => s.slug !== slug)
+  return pool.stories
+    .filter((s) => s.slug !== current.slug)
     .sort((a, b) => {
+      const sharedTags = current.tags.filter((t) => b.tags.includes(t)).length;
+      const sharedTagsA = current.tags.filter((t) => a.tags.includes(t)).length;
       const aScore =
+        sharedTagsA * 3 +
         (a.category === current.category ? 2 : 0) +
-        a.tags.filter((t) => current.tags.includes(t)).length +
         (a.importanceScore ?? 0) * 0.15;
       const bScore =
+        sharedTags * 3 +
         (b.category === current.category ? 2 : 0) +
-        b.tags.filter((t) => current.tags.includes(t)).length +
         (b.importanceScore ?? 0) * 0.15;
       return bScore - aScore;
     })

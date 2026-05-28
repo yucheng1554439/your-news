@@ -1,3 +1,4 @@
+import { storyMatchesThematicTag } from "@/lib/intelligence/thematic-tags";
 import type { Story, StoryCategory } from "@/lib/types";
 
 export type TopStoryCategory =
@@ -21,9 +22,20 @@ export const TOP_STORY_CATEGORIES: { id: TopStoryCategory; label: string }[] = [
   { id: "sports", label: "Sports" },
 ];
 
+const AI_TAGS = [
+  "ai",
+  "ai-infrastructure",
+  "consumer-ai",
+  "enterprise-ai",
+  "open-source-ai",
+  "semiconductors",
+  "cloud-infrastructure",
+  "developer-tools",
+];
 const AI_CATEGORIES: StoryCategory[] = ["ai", "technology", "developer", "startups"];
+const MARKETS_TAGS = ["markets", "investing", "semiconductors"];
 const GEOPOLITICS_CATEGORIES: StoryCategory[] = ["geopolitics", "policy"];
-const SCIENCE_CATEGORIES: StoryCategory[] = ["energy", "technology", "ai"];
+const GEOPOLITICS_TAGS = ["geopolitics", "policy", "supply-chain"];
 
 const SPORTS_PATTERN =
   /\b(nfl|nba|mlb|nhl|soccer|football|basketball|baseball|olympics|championship|playoffs|tournament|athlete|coach|espn)\b/i;
@@ -36,13 +48,14 @@ function isSportsStory(story: Story): boolean {
 
 function isScienceStory(story: Story): boolean {
   if (story.tags.includes("science")) return true;
-  if (SCIENCE_CATEGORIES.includes(story.category)) {
-    const blob = `${story.headline} ${story.summary}`.toLowerCase();
-    return /\b(science|research|study|nasa|space|climate|lab|genome|physics|biology)\b/.test(
-      blob
-    );
-  }
-  return false;
+  const blob = `${story.headline} ${story.summary}`.toLowerCase();
+  return /\b(science|research|study|nasa|space|climate|lab|genome|physics|biology)\b/.test(
+    blob
+  );
+}
+
+function matchesAnyTag(story: Story, tags: string[]): boolean {
+  return tags.some((t) => storyMatchesThematicTag(story, t));
 }
 
 export function filterStoriesByCategory(
@@ -53,15 +66,31 @@ export function filterStoriesByCategory(
 
   switch (category) {
     case "ai":
-      return stories.filter((s) => AI_CATEGORIES.includes(s.category));
+      return stories.filter(
+        (s) =>
+          (AI_CATEGORIES.includes(s.category) || matchesAnyTag(s, AI_TAGS)) &&
+          !s.tags.includes("gaming")
+      );
     case "markets":
-      return stories.filter((s) => s.category === "markets");
+      return stories.filter(
+        (s) => s.category === "markets" || matchesAnyTag(s, MARKETS_TAGS)
+      );
     case "geopolitics":
-      return stories.filter((s) => GEOPOLITICS_CATEGORIES.includes(s.category));
+      return stories.filter(
+        (s) =>
+          GEOPOLITICS_CATEGORIES.includes(s.category) ||
+          matchesAnyTag(s, GEOPOLITICS_TAGS)
+      );
     case "energy":
-      return stories.filter((s) => s.category === "energy");
+      return stories.filter(
+        (s) => s.category === "energy" || storyMatchesThematicTag(s, "energy")
+      );
     case "cybersecurity":
-      return stories.filter((s) => s.category === "cybersecurity");
+      return stories.filter(
+        (s) =>
+          s.category === "cybersecurity" ||
+          storyMatchesThematicTag(s, "cybersecurity")
+      );
     case "science":
       return stories.filter(isScienceStory);
     case "sports":

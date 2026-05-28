@@ -1,3 +1,4 @@
+import { mixFeedByDomain } from "@/lib/feed/domain-buckets";
 import {
   computeUserRelevanceScore,
   rankStoriesForUser,
@@ -22,9 +23,12 @@ export function getPersonalizedStories(
   limit?: number
 ): Story[] {
   const ranked = rankStoriesForUser(stories, profile);
-  return limit ? ranked.slice(0, limit) : ranked;
+  const mixed = mixFeedByDomain(ranked, { limit: limit ?? 48, picksPerDomain: 2 });
+  return limit ? mixed.slice(0, limit) : mixed;
 }
 
-export function getGlobalStories(stories: Story[]): Story[] {
-  return rankStoriesGlobal(stories);
+export function getGlobalStories(stories: Story[], limit?: number): Story[] {
+  const ranked = rankStoriesGlobal(stories);
+  const mixed = mixFeedByDomain(ranked, { limit: limit ?? 48, picksPerDomain: 2 });
+  return limit ? mixed.slice(0, limit) : mixed;
 }

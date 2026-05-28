@@ -1,16 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
 import { BarChart3, FileText, Newspaper } from "lucide-react";
 import { OnboardingCard } from "@/components/OnboardingCard";
 import { Button } from "@/components/ui/button";
-import {
-  completeOnboardingAsync,
-  getOnboardingProfile,
-  saveOnboardingProfileAsync,
-} from "@/lib/onboarding";
+import { useAdvanceOnboarding } from "@/components/personalize/useAdvanceOnboarding";
+import { getOnboardingProfile } from "@/lib/onboarding";
 import { getPersonalizeRoutes, type PersonalizeFlow } from "@/lib/personalize/routes";
 import type { Tone } from "@/lib/types";
 
@@ -46,30 +41,22 @@ interface ToneStepProps {
 }
 
 export function ToneStep({ userId, flow }: ToneStepProps) {
-  const router = useRouter();
-  const { user } = useUser();
   const routes = getPersonalizeRoutes(flow);
+  const { advance, saving, error } = useAdvanceOnboarding();
   const profile = getOnboardingProfile(userId);
   const [selected, setSelected] = useState<Tone | null>(profile.tone);
-  const [saving, setSaving] = useState(false);
 
-  const finish = async () => {
+  const finish = () => {
     if (!selected) return;
-    setSaving(true);
-
-    if (flow === "settings") {
-      await saveOnboardingProfileAsync(
-        { tone: selected, completed: true },
-        userId
-      );
-    } else {
-      await completeOnboardingAsync(userId, { tone: selected });
-    }
-
-    await user?.reload();
-    setSaving(false);
-    router.push(routes.complete);
-    router.refresh();
+    void advance({
+      userId,
+      partial: {
+        tone: selected,
+        completed: flow === "settings" ? true : undefined,
+      },
+      nextPath: routes.complete,
+      reloadClerkOnFinish: true,
+    });
   };
 
   return (
@@ -87,10 +74,13 @@ export function ToneStep({ userId, flow }: ToneStepProps) {
           />
         ))}
       </div>
+      {error && (
+        <p className="text-center text-sm text-red-400">{error}</p>
+      )}
       <Button
         className="w-full rounded-full bg-white text-zinc-950 hover:bg-zinc-200"
         disabled={!selected || saving}
-        onClick={() => void finish()}
+        onClick={finish}
       >
         {saving
           ? "Saving…"

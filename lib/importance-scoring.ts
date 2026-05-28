@@ -1,3 +1,8 @@
+import { getStorySourceTier } from "@/lib/editorial/source-authority";
+import {
+  assessStrategicSignal,
+  getStrategicSignal,
+} from "@/lib/signal/strategic-score";
 import type {
   EditorialImportanceLabel,
   Importance,
@@ -12,26 +17,14 @@ export type ImportanceScoreSignals = {
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 
-const CATEGORY_WEIGHT: Record<StoryCategory, number> = {
-  geopolitics: 0.95,
-  markets: 0.9,
-  ai: 0.88,
-  policy: 0.85,
-  energy: 0.82,
-  cybersecurity: 0.8,
-  technology: 0.75,
-  startups: 0.7,
-  developer: 0.55,
-};
-
 const MARKET_KEYWORDS =
   /\b(market|stock|fed|inflation|gdp|earnings|trade|bank|invest|economy|recession|rate|ipo|bond|commodity|oil price)\b/i;
 
 const GEOPOLITICAL_KEYWORDS =
   /\b(war|geopolit|china|taiwan|nato|military|sanction|diplomat|conflict|ukraine|israel|election|president|congress|eu\b|brexit)\b/i;
 
-const AI_KEYWORDS =
-  /\b(ai\b|artificial intelligence|openai|anthropic|llm|machine learning|model|chip|nvidia|generative|automation)\b/i;
+const AI_INFRA_KEYWORDS =
+  /\b(ai\b|openai|anthropic|nvidia|chip|semiconductor|data center|llm|model training)\b/i;
 
 export function normalizeHeadlineKey(headline: string): string {
   return headline
@@ -43,14 +36,14 @@ export function normalizeHeadlineKey(headline: string): string {
 
 export function computeRecencyScore(publishedAt: string, now = Date.now()): number {
   const published = new Date(publishedAt).getTime();
-  if (Number.isNaN(published)) return 0.4;
+  if (Number.isNaN(published)) return 0.3;
 
   const ageMs = Math.max(0, now - published);
-  if (ageMs <= 6 * MS_PER_HOUR) return 1;
-  if (ageMs <= MS_PER_DAY) return 0.85;
-  if (ageMs <= 3 * MS_PER_DAY) return 0.65;
-  if (ageMs <= 7 * MS_PER_DAY) return 0.45;
-  return 0.25;
+  if (ageMs <= 6 * MS_PER_HOUR) return 0.75;
+  if (ageMs <= MS_PER_DAY) return 0.65;
+  if (ageMs <= 3 * MS_PER_DAY) return 0.5;
+  if (ageMs <= 7 * MS_PER_DAY) return 0.35;
+  return 0.2;
 }
 
 export function computeSourceCountScore(sourceCount: number): number {
@@ -60,30 +53,36 @@ export function computeSourceCountScore(sourceCount: number): number {
   return 0.35;
 }
 
-export function computeCategoryImportance(category: StoryCategory): number {
-  return CATEGORY_WEIGHT[category] ?? 0.6;
+function storyBlob(story: Story): string {
+  return `${story.headline} ${story.articleBody ?? story.rawExcerpt ?? story.summary}`;
 }
 
 export function computeMarketRelevance(story: Story): number {
-  const blob = `${story.headline} ${story.summary} ${story.economicImplications ?? ""}`;
-  let score = story.category === "markets" || story.category === "energy" ? 0.75 : 0.2;
+  const blob = storyBlob(story);
+  let score = story.category === "markets" || story.category === "energy" ? 0.7 : 0.15;
   if (MARKET_KEYWORDS.test(blob)) score = Math.min(1, score + 0.35);
-  if (story.economicImplications) score = Math.min(1, score + 0.15);
   return score;
 }
 
 export function computeGeopoliticalSignificance(story: Story): number {
-  const blob = `${story.headline} ${story.summary}`;
-  let score = story.category === "geopolitics" || story.category === "policy" ? 0.8 : 0.15;
+  const blob = storyBlob(story);
+  let score =
+    story.category === "geopolitics" || story.category === "policy" ? 0.75 : 0.12;
   if (GEOPOLITICAL_KEYWORDS.test(blob)) score = Math.min(1, score + 0.4);
   return score;
 }
 
 export function computeAiSignificance(story: Story): number {
-  const blob = `${story.headline} ${story.summary}`;
-  let score =
-    story.category === "ai" || story.category === "technology" ? 0.85 : 0.2;
-  if (AI_KEYWORDS.test(blob)) score = Math.min(1, score + 0.35);
+  const blob = storyBlob(story);
+  if (story.tags.includes("gaming") && !story.tags.includes("semiconductors")) {
+    return 0.1;
+  }
+  let score = story.tags.some((t) =>
+    ["ai", "ai-infrastructure", "semiconductors", "enterprise-ai"].includes(t)
+  )
+    ? 0.75
+    : 0.15;
+  if (AI_INFRA_KEYWORDS.test(blob)) score = Math.min(1, score + 0.35);
   return score;
 }
 
@@ -92,35 +91,51 @@ export function scoreStoryImportance(
   signals: ImportanceScoreSignals = {}
 ): number {
   const sourceCount = signals.sourceCount ?? 1;
+  const strategic = getStrategicSignal(story);
+
+  const tier = getStorySourceTier(story);
+  const authorityBoost =
+    tier === 1 ? 0.06 : tier === 2 ? 0.02 : tier === 3 ? -0.08 : 0;
+  const corroboration = story.corroborationScore ?? 0;
 
   const weighted =
-    computeRecencyScore(story.publishedAt) * 0.22 +
-    computeSourceCountScore(sourceCount) * 0.18 +
-    computeMarketRelevance(story) * 0.16 +
-    computeGeopoliticalSignificance(story) * 0.14 +
-    computeAiSignificance(story) * 0.14 +
-    computeCategoryImportance(story.category) * 0.16;
+    strategic * 0.38 +
+    computeMarketRelevance(story) * 0.14 +
+    computeGeopoliticalSignificance(story) * 0.12 +
+    computeAiSignificance(story) * 0.12 +
+    computeSourceCountScore(sourceCount) * 0.12 +
+    computeRecencyScore(story.publishedAt) * 0.08 +
+    corroboration * 0.1 +
+    authorityBoost +
+    (story.tags.includes("policy") ? 0.04 : 0);
 
-  const raw = 1 + weighted * 9;
+  let raw = 1 + weighted * 9;
+
+  if (story.lowSignal) {
+    raw = Math.min(raw, 4);
+  }
+
   return Math.round(Math.min(10, Math.max(1, raw)));
 }
 
-/** Critical is reserved for exceptional stories — used in ranking and rare UI. */
 export function importanceLabelFromScore(
   score: number,
-  sourceCount = 1
+  sourceCount = 1,
+  lowSignal = false
 ): EditorialImportanceLabel {
+  if (lowSignal) return "Low";
   if (score >= 9 && sourceCount >= 2) return "Critical";
   if (score >= 7) return "High";
   if (score >= 4) return "Moderate";
   return "Low";
 }
 
-/** Only the rarest stories surface a Critical badge in the UI. */
 export function isCriticalForDisplay(story: Story): boolean {
+  if (story.lowSignal) return false;
   return (
     story.importanceLabel === "Critical" &&
-    (story.importanceScore ?? 0) >= 9
+    (story.importanceScore ?? 0) >= 9 &&
+    getStrategicSignal(story) >= 0.4
   );
 }
 
@@ -155,16 +170,23 @@ export function applyEditorialImportanceScores(
   const counts = sourceCounts ?? buildSourceCountMap(stories);
 
   return stories.map((story) => {
+    const assessment = assessStrategicSignal(story);
     const key = normalizeHeadlineKey(story.headline);
     const sourceCount = counts[key] ?? 1;
-    const importanceScore = scoreStoryImportance(story, { sourceCount });
+    const withSignal: Story = {
+      ...story,
+      strategicSignal: assessment.strategicSignal,
+      lowSignal: assessment.lowSignal,
+    };
+    const importanceScore = scoreStoryImportance(withSignal, { sourceCount });
     const importanceLabel = importanceLabelFromScore(
       importanceScore,
-      sourceCount
+      sourceCount,
+      assessment.lowSignal
     );
 
     return {
-      ...story,
+      ...withSignal,
       importanceScore,
       importanceLabel,
       importance: legacyImportanceFromLabel(importanceLabel),
@@ -173,8 +195,22 @@ export function applyEditorialImportanceScores(
 }
 
 export function compareByEditorialImportance(a: Story, b: Story): number {
+  const corrDiff =
+    (b.corroborationScore ?? 0) - (a.corroborationScore ?? 0);
+  if (Math.abs(corrDiff) > 0.1) return corrDiff > 0 ? 1 : -1;
+
+  const tierDiff = getStorySourceTier(a) - getStorySourceTier(b);
+  if (tierDiff !== 0) return tierDiff < 0 ? 1 : -1;
+
+  const clusterDiff = (b.clusterSize ?? 1) - (a.clusterSize ?? 1);
+  if (clusterDiff !== 0) return clusterDiff > 0 ? 1 : -1;
+
+  const stratDiff = getStrategicSignal(b) - getStrategicSignal(a);
+  if (Math.abs(stratDiff) > 0.08) return stratDiff > 0 ? 1 : -1;
+
   const scoreDiff = (b.importanceScore ?? 0) - (a.importanceScore ?? 0);
   if (scoreDiff !== 0) return scoreDiff;
+
   return (
     new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
   );

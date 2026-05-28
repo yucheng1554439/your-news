@@ -58,6 +58,7 @@ function parseCore(
       sourceLens: opt("sourceLens"),
       generatedAt: new Date().toISOString(),
       profileFingerprint,
+      generatedBy: "openai",
     };
   } catch {
     return null;

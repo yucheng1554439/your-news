@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
 import {
   Code2,
   TrendingUp,
@@ -12,7 +10,8 @@ import {
 } from "lucide-react";
 import { OnboardingCard } from "@/components/OnboardingCard";
 import { Button } from "@/components/ui/button";
-import { getOnboardingProfile, setCareerAsync } from "@/lib/onboarding";
+import { useAdvanceOnboarding } from "@/components/personalize/useAdvanceOnboarding";
+import { getOnboardingProfile } from "@/lib/onboarding";
 import { getPersonalizeRoutes, type PersonalizeFlow } from "@/lib/personalize/routes";
 import type { Career } from "@/lib/types";
 
@@ -60,22 +59,19 @@ interface CareerStepProps {
 }
 
 export function CareerStep({ userId, flow }: CareerStepProps) {
-  const router = useRouter();
-  const { user } = useUser();
   const routes = getPersonalizeRoutes(flow);
+  const { advance, saving, error } = useAdvanceOnboarding();
   const [selected, setSelected] = useState<Career | null>(
     () => getOnboardingProfile(userId).career
   );
-  const [saving, setSaving] = useState(false);
 
-  const continue_ = async () => {
+  const continue_ = () => {
     if (!selected) return;
-    setSaving(true);
-    await setCareerAsync(selected, userId);
-    await user?.reload();
-    setSaving(false);
-    router.push(routes.focus);
-    router.refresh();
+    void advance({
+      userId,
+      partial: { career: selected },
+      nextPath: routes.focus,
+    });
   };
 
   return (
@@ -93,10 +89,13 @@ export function CareerStep({ userId, flow }: CareerStepProps) {
           />
         ))}
       </div>
+      {error && (
+        <p className="text-center text-sm text-red-400">{error}</p>
+      )}
       <Button
         className="w-full rounded-full bg-white text-zinc-950 hover:bg-zinc-200"
         disabled={!selected || saving}
-        onClick={() => void continue_()}
+        onClick={continue_}
       >
         {saving ? "Saving…" : "Continue"}
       </Button>

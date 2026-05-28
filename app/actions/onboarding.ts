@@ -1,10 +1,8 @@
 "use server";
 
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import {
-  ONBOARDING_METADATA_KEY,
-  parseOnboardingFromMetadata,
-} from "@/lib/onboarding-metadata";
+import { mergePublicMetadata } from "@/lib/clerk/merge-public-metadata";
+import { parseOnboardingFromMetadata } from "@/lib/onboarding-metadata";
 import type { OnboardingProfile } from "@/lib/types";
 
 export async function getOnboardingFromClerk(): Promise<OnboardingProfile | null> {
@@ -33,10 +31,11 @@ export async function saveOnboardingToClerk(
 
   try {
     const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    const existing = (user.publicMetadata ?? {}) as Record<string, unknown>;
+
     await client.users.updateUserMetadata(userId, {
-      publicMetadata: {
-        [ONBOARDING_METADATA_KEY]: stamped,
-      },
+      publicMetadata: mergePublicMetadata(existing, { onboarding: stamped }),
     });
     return { ok: true };
   } catch {

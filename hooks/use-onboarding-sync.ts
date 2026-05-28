@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { getOnboardingFromClerk, saveOnboardingToClerk } from "@/app/actions/onboarding";
 import {
@@ -18,11 +18,13 @@ export function useOnboardingSync() {
   const { user, isLoaded } = useUser();
   const [synced, setSynced] = useState(false);
   const [profile, setProfile] = useState<OnboardingProfile | null>(null);
+  const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isLoaded) return;
 
-    if (!user) {
+    if (!user?.id) {
+      lastUserIdRef.current = null;
       startTransition(() => {
         setSynced(true);
         setProfile(null);
@@ -30,32 +32,33 @@ export function useOnboardingSync() {
       return;
     }
 
+    const userId = user.id;
     let cancelled = false;
 
     async function sync() {
-      if (!user) return;
-
       const clerkMeta = parseOnboardingFromMetadata(
-        user.publicMetadata as Record<string, unknown>
+        user!.publicMetadata as Record<string, unknown>
       );
-      const local = stampProfile(getOnboardingProfile(user.id));
+      const local = stampProfile(getOnboardingProfile(userId));
 
       let resolved = reconcileOnboardingProfiles(local, clerkMeta);
 
-      if (!clerkMeta?.completed && !local.completed) {
+      if (!local.completed && !clerkMeta?.completed) {
         const remote = await getOnboardingFromClerk();
         if (remote) {
           resolved = reconcileOnboardingProfiles(local, remote);
         }
       }
 
-      const localTs = local.updatedAt ?? 0;
-      const resolvedTs = resolved.updatedAt ?? 0;
-      if (localTs > resolvedTs && local.interests.length > 0) {
-        resolved = local;
+      if (!resolved.completed && local.interests.length > 0) {
+        const localTs = local.updatedAt ?? 0;
+        const resolvedTs = resolved.updatedAt ?? 0;
+        if (localTs >= resolvedTs) {
+          resolved = local;
+        }
       }
 
-      hydrateOnboardingProfile(resolved, user.id);
+      hydrateOnboardingProfile(resolved, userId);
 
       const clerkTs = clerkMeta?.updatedAt ?? 0;
       if ((resolved.updatedAt ?? 0) > clerkTs) {
@@ -67,6 +70,7 @@ export function useOnboardingSync() {
           setProfile(resolved);
           setSynced(true);
         });
+        lastUserIdRef.current = userId;
       }
     }
 
@@ -74,7 +78,26 @@ export function useOnboardingSync() {
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, user]);
+  }, [isLoaded, user?.id]);
+
+  useEffect(() => {
+    if (!isLoaded || !user?.id) return;
+
+    const userId = user.id;
+
+    const onFocus = () => {
+      const local = stampProfile(getOnboardingProfile(userId));
+      setProfile((prev) => {
+        const prevKey = prev?.updatedAt ?? 0;
+        const nextKey = local.updatedAt ?? 0;
+        if (prevKey === nextKey && prev?.career === local.career) return prev;
+        return reconcileOnboardingProfiles(local, prev);
+      });
+    };
+
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [isLoaded, user?.id]);
 
   return {
     user,

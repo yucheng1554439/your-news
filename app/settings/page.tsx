@@ -88,10 +88,17 @@ function SettingsContent({ userId }: { userId: string }) {
       </div>
 
       <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-6">
-        <h2 className="font-serif text-lg text-white">Saved Stories</h2>
+        <h2 className="font-serif text-lg text-white">Saved stories</h2>
         <p className="mt-2 text-sm text-zinc-400">
-          Bookmarking arrives in a future release.
+          Your bookmarked intelligence — synced to your account.
         </p>
+        <Button
+          variant="outline"
+          className="mt-4 rounded-full border-white/10 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-white"
+          onClick={() => router.push("/saved")}
+        >
+          View saved stories
+        </Button>
       </div>
 
       <Button
