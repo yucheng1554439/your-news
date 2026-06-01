@@ -5,7 +5,7 @@ import {
   type NarrativeTheme,
 } from "@/lib/editorial/narrative-clusters";
 import { scoreWeeklyNarrativeWeight } from "@/lib/editorial/weekly-narrative";
-import { getStrategicSignal } from "@/lib/signal/strategic-score";
+import { getStrategicSignal, isBriefingEligible } from "@/lib/signal/strategic-score";
 import { rankStoriesGlobal } from "@/lib/personalization/engine";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
@@ -77,9 +77,9 @@ export function selectGlobalWeeklyNarrative(
   stories: Story[],
   _profile: OnboardingProfile | null
 ): GlobalWeeklyNarrative {
-  const pool = rankStoriesGlobal(stories).filter(
-    (s) => scoreWeeklyNarrativeWeight(s, null) >= 2.6
-  );
+  const pool = rankStoriesGlobal(stories)
+    .filter(isBriefingEligible)
+    .filter((s) => scoreWeeklyNarrativeWeight(s, null) >= 2.6);
   const clusters = buildNarrativeClusters(pool);
 
   if (clusters.length === 0) {

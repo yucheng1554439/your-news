@@ -1,14 +1,29 @@
 import type { Story, StoryCategory } from "@/lib/types";
 
+export type SignalClass = "signal" | "noise";
+
 /** 0 = noise, 1 = high strategic signal. */
 export type StrategicAssessment = {
   strategicSignal: number;
   lowSignal: boolean;
+  signalClass: SignalClass;
   reasons: string[];
 };
 
 const LOW_SIGNAL_PATTERN =
   /\b(gaming merch|merchandise|plush|collectible|toy\b|lego\b|funko|game trailer|season \d+ trailer|dlc\b|cosmetic|skin bundle|fortnite|call of duty|gta\b|black friday|cyber monday|coupon|discount code|giveaway|celebrity|kardashian|royal family|reality tv|box office|red carpet|fashion week|recipe\b|horoscope)\b/i;
+
+const LOCAL_INCIDENT =
+  /\b(local man|local woman|county sheriff|small town|car crash|house fire|shooting in|murder trial|missing person|school board|traffic stop|domestic dispute|neighborhood|suburb of)\b/i;
+
+const ENTERTAINMENT_NOISE =
+  /\b(morgan wallen|smashed a piano|smashed (his|her|the) piano|country star|pop star|rapper\b|singer\b|musician\b|concert tour|album release|music video|grammy|billboard|spotify playlist|hollywood|entertainment news|tv show|streaming series|movie premiere|film festival|award show|drama on set|feud with|breakup with|dating rumor|wedding photos|paparazzi)\b/i;
+
+const CURIOSITY_NOISE =
+  /\b(meteor sighting|meteor shower|shooting star|fireball in the sky|ufo sighting|strange lights in the sky|viral video|went viral|tiktok trend|meme\b|feel-good story|heartwarming moment|curiosity\b|oddity\b|bizarre moment|amazing video)\b/i;
+
+const SPORTS_NOISE =
+  /\b(nfl|nba|mlb|nhl|soccer score|football score|touchdown|home run|playoffs bracket|world cup final|super bowl|trade rumors?|draft pick|coach fired|player injury update)\b/i;
 
 const CULTURE_EXPLAINER =
   /\b(eid al-adha|eid al-fitr|ramadan\b|hanukkah|diwali\b|holiday explainer|what is eid|cultural tradition|religious festival guide|holy month|festival guide)\b/i;
@@ -16,8 +31,12 @@ const CULTURE_EXPLAINER =
 const GAMING_ENTERTAINMENT =
   /\b(video game|gaming|playstation|xbox|nintendo|esports|twitch streamer|gamer\b)/i;
 
-const SPORTS_ONLY =
-  /\b(nfl|nba|mlb|nhl|soccer|football score|touchdown|home run|playoffs bracket)\b/i;
+const MEASURABLE_CONSEQUENCE =
+  /\b(fed\b|federal reserve|interest rate|inflation|gdp|earnings|ipo\b|acquisition|merger|antitrust|sec charges|stock fell|stock rose|s&p|nasdaq|bond yield|treasury|recession|jobs report|congress|senate|white house|regulation|sanction|tariff|nato|ukraine|china|taiwan|war\b|missile|election|supreme court|g7|ceasefire|invasion|openai|anthropic|nvidia|tsmc|data center|hyperscaler|llm|semiconductor|cloud capex|ai infrastructure|export control|ai regulation|layoff|job cuts|opec|crude oil|natural gas|power grid|pipeline|supply chain|ransomware|data breach|cyber attack|defense spending|infrastructure bill|port\b|shipping lane|billion\b|\$\d)\b/i;
+
+/** Stories that can plausibly affect decisions — Critical bar. */
+export const CRITICAL_IMPACT_PATTERN =
+  /\b(fed\b|federal reserve|fomc|interest rate (cut|hike|decision)|rate cut|rate hike|strait of hormuz|\biran\b|invasion|escalat|sanction|nvidia\b.*(\$|billion|investment|infrastructure|data center)|major ipo|\bipo\b.*(billion|largest)|ai regulation|export control|chip act|cybersecurity breach|data breach|ransomware attack|supply chain disrupt|energy supply|opec (cut|decision)|pipeline (attack|shut|rupture)|power grid (outage|attack)|critical infrastructure|defense spending|antitrust (ruling|suit)|treasury (sanction|tariff)|military strike|nuclear (program|facility)|semiconductor (shortage|ban)|war (on|in)|ceasefire|tariff (hike|war))\b/i;
 
 const STRATEGIC_MARKET =
   /\b(fed\b|federal reserve|interest rate|inflation|gdp|earnings|ipo\b|acquisition|merger|antitrust|sec charges|stock fell|stock rose|s&p|nasdaq|bond yield|treasury|hedge fund|private equity|valuation|recession|jobs report)\b/i;
@@ -60,8 +79,34 @@ const CATEGORY_FLOOR: Partial<Record<StoryCategory, number>> = {
   cybersecurity: 0.32,
 };
 
+const HIGH_STAKES_CATEGORIES = new Set<StoryCategory>([
+  "geopolitics",
+  "policy",
+  "markets",
+  "energy",
+  "cybersecurity",
+]);
+
 function storyBlob(story: Story): string {
   return `${story.headline} ${story.articleBody ?? story.rawExcerpt ?? story.summary}`;
+}
+
+function deriveSignalClass(
+  lowSignal: boolean,
+  strategic: number,
+  blob: string
+): SignalClass {
+  if (lowSignal) return "noise";
+  if (strategic < 0.22) return "noise";
+  if (
+    (ENTERTAINMENT_NOISE.test(blob) ||
+      CURIOSITY_NOISE.test(blob) ||
+      SPORTS_NOISE.test(blob)) &&
+    !MEASURABLE_CONSEQUENCE.test(blob)
+  ) {
+    return "noise";
+  }
+  return "signal";
 }
 
 export function assessStrategicSignal(story: Story): StrategicAssessment {
@@ -72,15 +117,44 @@ export function assessStrategicSignal(story: Story): StrategicAssessment {
     return {
       strategicSignal: 0.08,
       lowSignal: true,
+      signalClass: "noise",
       reasons: ["consumer/entertainment promo"],
     };
   }
 
-  if (SPORTS_ONLY.test(blob) && story.tags.includes("sports")) {
+  if (LOCAL_INCIDENT.test(blob) && !MEASURABLE_CONSEQUENCE.test(blob)) {
+    return {
+      strategicSignal: 0.09,
+      lowSignal: true,
+      signalClass: "noise",
+      reasons: ["local incident without strategic consequence"],
+    };
+  }
+
+  if (ENTERTAINMENT_NOISE.test(blob) && !MEASURABLE_CONSEQUENCE.test(blob)) {
+    return {
+      strategicSignal: 0.1,
+      lowSignal: true,
+      signalClass: "noise",
+      reasons: ["entertainment/celebrity without strategic consequence"],
+    };
+  }
+
+  if (CURIOSITY_NOISE.test(blob) && !MEASURABLE_CONSEQUENCE.test(blob)) {
+    return {
+      strategicSignal: 0.1,
+      lowSignal: true,
+      signalClass: "noise",
+      reasons: ["curiosity/viral without strategic consequence"],
+    };
+  }
+
+  if (SPORTS_NOISE.test(blob) && !MEASURABLE_CONSEQUENCE.test(blob)) {
     return {
       strategicSignal: 0.12,
       lowSignal: true,
-      reasons: ["sports coverage"],
+      signalClass: "noise",
+      reasons: ["sports coverage without business angle"],
     };
   }
 
@@ -92,19 +166,18 @@ export function assessStrategicSignal(story: Story): StrategicAssessment {
     return {
       strategicSignal: 0.14,
       lowSignal: true,
+      signalClass: "noise",
       reasons: ["culture/holiday explainer without macro linkage"],
     };
   }
 
   if (GAMING_ENTERTAINMENT.test(blob) && !STRATEGIC_AI_TECH.test(blob)) {
-    const hasBizAngle =
-      /\b(acquisition|billion|regulation|earnings|layoff|antitrust|stock)\b/i.test(
-        blob
-      );
+    const hasBizAngle = MEASURABLE_CONSEQUENCE.test(blob);
     if (!hasBizAngle) {
       return {
         strategicSignal: 0.18,
         lowSignal: true,
+        signalClass: "noise",
         reasons: ["gaming/entertainment without business angle"],
       };
     }
@@ -164,21 +237,64 @@ export function assessStrategicSignal(story: Story): StrategicAssessment {
 
   const capped = Math.min(1, strategic);
   const lowSignal = false;
+  const signalClass = deriveSignalClass(lowSignal, capped, blob);
 
   return {
     strategicSignal: capped,
     lowSignal,
+    signalClass,
     reasons,
   };
 }
 
 export function isLowSignalStory(story: Story): boolean {
   if (story.lowSignal === true) return true;
+  if (story.signalClass === "noise") return true;
   return assessStrategicSignal(story).lowSignal;
+}
+
+export function isNoiseStory(story: Story): boolean {
+  if (story.signalClass === "noise") return true;
+  if (story.lowSignal === true) return true;
+  return assessStrategicSignal(story).signalClass === "noise";
 }
 
 export function getStrategicSignal(story: Story): number {
   return story.strategicSignal ?? assessStrategicSignal(story).strategicSignal;
+}
+
+export function getSignalClass(story: Story): SignalClass {
+  if (story.signalClass) return story.signalClass;
+  return assessStrategicSignal(story).signalClass;
+}
+
+/** Briefings and hero slots — signal-only pool. */
+export function isBriefingEligible(story: Story): boolean {
+  if (isNoiseStory(story)) return false;
+  return getStrategicSignal(story) >= 0.3;
+}
+
+/** Critical = rare; must plausibly affect decisions. */
+export function meetsCriticalBar(story: Story): boolean {
+  if (isNoiseStory(story)) return false;
+
+  const strategic = getStrategicSignal(story);
+  if (strategic < 0.5) return false;
+
+  const blob = storyBlob(story);
+  const hasCriticalMarker = CRITICAL_IMPACT_PATTERN.test(blob);
+  const highStakes =
+    HIGH_STAKES_CATEGORIES.has(story.category) && strategic >= 0.62;
+
+  if (!hasCriticalMarker && !highStakes) return false;
+
+  const clusterSize = story.clusterSize ?? 1;
+  const corroboration = story.corroborationScore ?? 0;
+  if (clusterSize < 2 && corroboration < 0.35 && strategic < 0.58) {
+    return false;
+  }
+
+  return true;
 }
 
 /** @deprecated Use `@/lib/editorial/lead-eligibility` */

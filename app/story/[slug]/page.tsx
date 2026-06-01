@@ -8,11 +8,16 @@ import { StoryIntelligenceAsync } from "@/components/StoryIntelligenceAsync";
 import { ReadOriginalSource } from "@/components/ReadOriginalSource";
 import { getCategoryLabel } from "@/lib/data/categories";
 import { getOnboardingFromClerk } from "@/app/actions/onboarding";
+import { getSavedStoriesFromClerk } from "@/app/actions/saved-stories";
+import { getReadingSignalsFromClerk } from "@/app/actions/reading-signals";
 import { StoryDate } from "@/components/StoryDate";
 import { getRelatedStories, getStoryBySlug } from "@/lib/data/stories";
 import { isCriticalForDisplay } from "@/lib/importance-scoring";
 import { isCriticalForUser } from "@/lib/personalization/importance";
+import { behaviorSignalsFromReading } from "@/lib/personalization/behavior-signals";
 import { signalsFromProfile } from "@/lib/personalization/signals";
+import { RecordStoryOpen } from "@/components/RecordStoryOpen";
+import { getDisplayTags } from "@/lib/intelligence/story-tags";
 
 interface StoryPageProps {
   params: Promise<{ slug: string }>;
@@ -30,14 +35,25 @@ export default async function StoryPage({ params }: StoryPageProps) {
   }
 
   const related = await getRelatedStories(slug, 4, { profile, enrich: false });
-  const signals = profile ? signalsFromProfile(profile) : null;
+  const savedRefs =
+    profile?.completed ? await getSavedStoriesFromClerk() : [];
+  const reading =
+    profile?.completed ? await getReadingSignalsFromClerk() : null;
+  const signals = profile
+    ? signalsFromProfile(
+        profile,
+        behaviorSignalsFromReading(reading, savedRefs)
+      )
+    : null;
   const showCritical =
     signals && profile?.completed
       ? isCriticalForUser(story, signals)
       : isCriticalForDisplay(story);
+  const storyTags = getDisplayTags(story, 6);
 
   return (
     <div className="min-h-screen bg-zinc-950">
+      <RecordStoryOpen story={story} />
       <Navbar />
       <article className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
         <div className="relative mb-8 aspect-[16/9] overflow-hidden rounded-2xl border border-white/10">
@@ -77,6 +93,18 @@ export default async function StoryPage({ params }: StoryPageProps) {
             {story.source}
             {story.readTime > 0 && ` · ${story.readTime} min read`}
           </p>
+          {storyTags.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {storyTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-zinc-400"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
         </header>
 
         <StoryIntelligenceAsync story={story} profile={profile} />
@@ -85,23 +113,6 @@ export default async function StoryPage({ params }: StoryPageProps) {
           sourceUrl={story.sourceUrl}
           sourceName={story.source}
         />
-
-        {story.timeline && story.timeline.length > 0 && (
-          <section className="mt-10 space-y-6">
-            <h2 className="font-serif text-xl text-white">Timeline</h2>
-            <ol className="relative space-y-6 border-l border-white/10 pl-6">
-              {story.timeline.map((event, i) => (
-                <li key={i} className="relative">
-                  <span className="absolute -left-[1.4rem] top-1.5 h-2 w-2 rounded-full bg-zinc-600" />
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    {event.date}
-                  </p>
-                  <p className="mt-1 text-zinc-300">{event.event}</p>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
 
         <section className="mt-14">
           <h2 className="mb-6 font-serif text-2xl text-white">

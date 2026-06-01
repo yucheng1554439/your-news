@@ -9,7 +9,7 @@ import {
   TRUSTED_NEWS_API_SOURCE_IDS,
 } from "@/lib/news/trusted-sources";
 import { mergeNewsApiContent } from "@/lib/extraction/resolve-body";
-import { inferThematicTags } from "@/lib/intelligence/thematic-tags";
+import { enrichStoryTags } from "@/lib/intelligence/story-tags";
 import { buildStorySlug } from "@/lib/slug";
 import type { Story, StoryCategory } from "@/lib/types";
 
@@ -255,7 +255,7 @@ function normalizeArticle(
     newsApiContent,
     whyItMatters: buildWhyItMatters(rawExcerpt, category),
     category,
-    tags: inferThematicTags(headline, rawExcerpt, category),
+    tags: [],
     importance: "medium",
     imageUrl: isValidImageUrl(article.urlToImage)
       ? article.urlToImage
@@ -266,16 +266,24 @@ function normalizeArticle(
     readTime,
   };
 
+  let tagged = enrichStoryTags(story);
+
   if (forceTags?.length) {
-    story.tags = [...new Set([...story.tags, ...forceTags])];
+    tagged = enrichStoryTags({
+      ...tagged,
+      tags: [...new Set([...tagged.tags, ...forceTags])],
+      strategicTags: [
+        ...new Set([...(tagged.strategicTags ?? []), ...forceTags]),
+      ],
+    });
   }
 
-  if (category === "markets" || category === "energy") {
-    story.economicImplications =
+  if (tagged.category === "markets" || tagged.category === "energy") {
+    tagged.economicImplications =
       "Macro and sector implications may affect portfolio positioning, corporate planning, and policy expectations.";
   }
 
-  return story;
+  return tagged;
 }
 
 function parsePublishedAt(iso: string | null | undefined): string {

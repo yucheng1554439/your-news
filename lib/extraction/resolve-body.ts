@@ -9,6 +9,9 @@ import {
 import { fetchArticleHtml } from "@/lib/extraction/fetch-url";
 import { parseArticleHtml } from "@/lib/extraction/parse-html";
 import { cleanArticleText, truncateForModel } from "@/lib/extraction/clean";
+import { isArticleBodyAvailable } from "@/lib/extraction/article-body";
+import { isPaywallContent } from "@/lib/extraction/paywall";
+import { enrichStoryTags } from "@/lib/intelligence/story-tags";
 import type { Story } from "@/lib/types";
 
 export const MAX_ARTICLE_BODY_CHARS = 10_000;
@@ -18,6 +21,7 @@ export type ResolvedArticleBody = {
   body: string;
   source: ArticleBodySource;
   truncated: string;
+  paywallDetected: boolean;
 };
 
 function isNewsApiTruncated(content: string): boolean {
@@ -43,6 +47,7 @@ export function resolveBodyFromExcerpt(story: Story): ResolvedArticleBody {
     body,
     source: "excerpt",
     truncated: truncateForModel(body, MAX_ARTICLE_BODY_CHARS),
+    paywallDetected: Boolean(story.paywallDetected),
   };
 }
 
@@ -50,41 +55,56 @@ export async function resolveArticleBodyFromUrl(
   sourceUrl: string,
   fallbacks: { newsApiText?: string; excerpt: string }
 ): Promise<ResolvedArticleBody> {
+  let paywallBlocked = false;
+
   const cached = await readCachedBodyAsync(sourceUrl);
   if (cached && cached.body.length >= MIN_USEFUL_BODY_CHARS) {
-    return {
-      body: cached.body,
-      source: cached.source,
-      truncated: truncateForModel(cached.body, MAX_ARTICLE_BODY_CHARS),
-    };
+    if (isPaywallContent(cached.body)) {
+      paywallBlocked = true;
+    } else {
+      return {
+        body: cached.body,
+        source: cached.source,
+        truncated: truncateForModel(cached.body, MAX_ARTICLE_BODY_CHARS),
+        paywallDetected: false,
+      };
+    }
   }
 
   const fetched = await fetchArticleHtml(sourceUrl);
   if (fetched.ok) {
     const parsed = parseArticleHtml(fetched.html);
-    if (parsed.length >= MIN_USEFUL_BODY_CHARS) {
+    if (isPaywallContent(parsed)) {
+      paywallBlocked = true;
+    } else if (parsed.length >= MIN_USEFUL_BODY_CHARS) {
       writeCachedBody(sourceUrl, parsed, "url");
       return {
         body: parsed,
         source: "url",
         truncated: truncateForModel(parsed, MAX_ARTICLE_BODY_CHARS),
+        paywallDetected: false,
       };
     }
   }
 
   const newsApi = fallbacks.newsApiText?.trim() ?? "";
-  if (newsApi.length >= MIN_USEFUL_BODY_CHARS && !isNewsApiTruncated(newsApi)) {
+  if (
+    newsApi.length >= MIN_USEFUL_BODY_CHARS &&
+    !isNewsApiTruncated(newsApi) &&
+    !isPaywallContent(newsApi)
+  ) {
     const cleaned = cleanArticleText(newsApi);
     writeCachedBody(sourceUrl, cleaned, "newsapi");
     return {
       body: cleaned,
       source: "newsapi",
       truncated: truncateForModel(cleaned, MAX_ARTICLE_BODY_CHARS),
+      paywallDetected: paywallBlocked,
     };
   }
 
   const excerptBody = cleanArticleText(fallbacks.excerpt);
-  if (excerptBody.length >= 80) {
+  if (excerptBody.length >= 80 && !isPaywallContent(excerptBody)) {
     writeCachedBody(sourceUrl, excerptBody, "excerpt");
   }
 
@@ -92,6 +112,7 @@ export async function resolveArticleBodyFromUrl(
     body: excerptBody,
     source: "excerpt",
     truncated: truncateForModel(excerptBody, MAX_ARTICLE_BODY_CHARS),
+    paywallDetected: paywallBlocked || excerptBody.length < MIN_USEFUL_BODY_CHARS,
   };
 }
 
@@ -101,18 +122,29 @@ export async function ensureStoryArticleBody(
   if (
     story.articleBody &&
     story.articleBody.length >= MIN_USEFUL_BODY_CHARS &&
-    story.articleBodySource === "url"
+    (story.articleBodySource === "url" || story.articleBodySource === "newsapi") &&
+    !isPaywallContent(story.articleBody)
   ) {
-    return story;
+    return enrichStoryTags({
+      ...story,
+      paywallDetected: false,
+      articleBodyAvailable: true,
+    });
   }
 
   if (!story.sourceUrl) {
     const fallback = resolveBodyFromExcerpt(story);
-    return {
+    const enriched = {
       ...story,
       articleBody: fallback.body,
-      articleBodySource: fallback.source,
+      articleBodySource: fallback.source as "excerpt",
     };
+    const available = isArticleBodyAvailable(enriched);
+    return enrichStoryTags({
+      ...enriched,
+      paywallDetected: !available,
+      articleBodyAvailable: available,
+    });
   }
 
   const resolved = await resolveArticleBodyFromUrl(story.sourceUrl, {
@@ -120,11 +152,21 @@ export async function ensureStoryArticleBody(
     excerpt: story.rawExcerpt ?? story.summary,
   });
 
-  return {
+  const bodyAvailable =
+    !resolved.paywallDetected &&
+    resolved.body.length >= MIN_USEFUL_BODY_CHARS &&
+    !isPaywallContent(resolved.body) &&
+    (resolved.source === "url" || resolved.source === "newsapi");
+
+  const metadataBody = cleanArticleText(story.rawExcerpt ?? story.summary);
+
+  return enrichStoryTags({
     ...story,
-    articleBody: resolved.body,
-    articleBodySource: resolved.source,
-  };
+    articleBody: bodyAvailable ? resolved.body : metadataBody,
+    articleBodySource: bodyAvailable ? resolved.source : "excerpt",
+    paywallDetected: !bodyAvailable,
+    articleBodyAvailable: bodyAvailable,
+  });
 }
 
 export function articleBodyFingerprint(story: Story): string {

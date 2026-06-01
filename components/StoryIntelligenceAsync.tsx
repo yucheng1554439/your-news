@@ -1,7 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import {
+  fetchStoryIntelligence,
+  generateStoryIntelligenceIfMissing,
+} from "@/app/actions/intelligence";
 import { AIStatusBanner } from "@/components/AIStatusBanner";
 import { StoryIntelligence } from "@/components/StoryIntelligence";
+import { hasDisplayableIntelligence } from "@/lib/intelligence/display";
+import { verifyIntelligenceMatch } from "@/lib/intelligence/provenance-match";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 interface StoryIntelligenceAsyncProps {
@@ -9,38 +16,138 @@ interface StoryIntelligenceAsyncProps {
   profile: OnboardingProfile | null;
 }
 
-export function StoryIntelligenceAsync({
-  story,
-}: StoryIntelligenceAsyncProps) {
-  const hasAi = Boolean(story.intelligenceGeneratedBy);
+const MAX_POLLS = 4;
 
+function GeneratingStoryIntelligence({ story }: { story: Story }) {
+  const excerpt = story.rawExcerpt?.trim() || story.summary?.trim();
   return (
-    <>
-      <AIStatusBanner
-        generatedBy={story.intelligenceGeneratedBy}
-        aiError={story.intelligenceAiError ?? story.intelligenceOpenaiError}
-        context="story"
-      />
-      {hasAi ? (
+    <div className="mt-10 space-y-6 rounded-xl border border-white/10 bg-zinc-900/40 px-5 py-8">
+      <div className="flex items-center gap-3">
+        <span
+          className="h-2 w-2 animate-pulse rounded-full bg-emerald-400/90"
+          aria-hidden
+        />
+        <p className="text-sm font-medium text-zinc-200">
+          Preparing analysis…
+        </p>
+      </div>
+      {excerpt && (
+        <section className="space-y-2">
+          <h2 className="text-xs uppercase tracking-[0.15em] text-zinc-500">
+            From the source
+          </h2>
+          <p className="text-sm leading-relaxed text-zinc-400">{excerpt}</p>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function isStoryIntelligenceReady(base: Story, candidate: Story): boolean {
+  return (
+    hasDisplayableIntelligence(candidate) &&
+    verifyIntelligenceMatch(base, candidate).match
+  );
+}
+
+export function StoryIntelligenceAsync({
+  story: initial,
+  profile,
+}: StoryIntelligenceAsyncProps) {
+  const [story, setStory] = useState(initial);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setStory(initial);
+    setLoading(true);
+  }, [initial.slug, initial.intelligenceGeneratedBy]);
+
+  const ready = isStoryIntelligenceReady(initial, story);
+
+  useEffect(() => {
+    if (ready) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    let localPolls = 0;
+    let requestedBackfill = false;
+
+    async function tick() {
+      if (cancelled) return;
+      localPolls += 1;
+
+      const next = await fetchStoryIntelligence(initial.slug, profile);
+      if (next && isStoryIntelligenceReady(initial, next)) {
+        setStory(next);
+        setLoading(false);
+        return;
+      }
+
+      if (!requestedBackfill && localPolls >= 2) {
+        requestedBackfill = true;
+        const gen = await generateStoryIntelligenceIfMissing(
+          initial.slug,
+          profile
+        );
+        if (gen.ok && gen.story && isStoryIntelligenceReady(initial, gen.story)) {
+          setStory(gen.story);
+          setLoading(false);
+          return;
+        }
+        if (gen.story && hasDisplayableIntelligence(gen.story)) {
+          setStory(gen.story);
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (localPolls >= MAX_POLLS) {
+        const fallback = await fetchStoryIntelligence(initial.slug, profile);
+        if (fallback && hasDisplayableIntelligence(fallback)) {
+          setStory(fallback);
+        }
+        setLoading(false);
+      }
+    }
+
+    void tick();
+    const interval = setInterval(() => void tick(), 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [initial.slug, profile, ready]);
+
+  if (ready || (hasDisplayableIntelligence(story) && !loading)) {
+    return (
+      <>
+        {(story.intelligenceGeneratedBy === "fallback" ||
+          story.intelligenceGeneratedBy === "metadata") && (
+          <div className="mt-10">
+            <AIStatusBanner
+              generatedBy={
+                story.intelligenceGeneratedBy === "metadata"
+                  ? "metadata"
+                  : "fallback"
+              }
+              context="story"
+            />
+          </div>
+        )}
         <StoryIntelligence
           story={story}
           whyItMattersToYou={story.whyItMattersToYou}
         />
-      ) : (
-        <div className="mt-10 space-y-4 rounded-xl border border-white/10 bg-zinc-900/40 px-5 py-6">
-          <p className="text-sm leading-relaxed text-zinc-300">{story.summary}</p>
-          {story.whyItMatters ? (
-            <p className="text-sm leading-relaxed text-zinc-400">
-              {story.whyItMatters}
-            </p>
-          ) : null}
-          <p className="text-xs text-zinc-500">
-            AI intelligence for this story is not in the snapshot yet. Use{" "}
-            <span className="text-zinc-400">Refresh Intelligence</span> on the
-            homepage to generate and persist analysis.
-          </p>
-        </div>
-      )}
-    </>
-  );
+      </>
+    );
+  }
+
+  if (loading) {
+    return <GeneratingStoryIntelligence story={story} />;
+  }
+
+  return <GeneratingStoryIntelligence story={story} />;
 }

@@ -177,10 +177,27 @@ export function inferThematicTags(
 }
 
 export function storyMatchesThematicTag(
-  story: { tags: string[]; category: StoryCategory },
+  story: {
+    tags: string[];
+    category: StoryCategory;
+    strategicTags?: string[];
+    secondaryTags?: string[];
+    primaryCategory?: StoryCategory;
+  },
   tag: string
 ): boolean {
-  return story.tags.includes(tag) || story.category === tag;
+  const needle = tag.toLowerCase();
+  if (story.tags.some((t) => t.toLowerCase() === needle)) return true;
+  if (story.strategicTags?.some((t) => t.toLowerCase() === needle)) return true;
+  if (
+    story.secondaryTags?.some(
+      (t) => t.toLowerCase().replace(/\s+/g, "-") === needle
+    )
+  ) {
+    return true;
+  }
+  const primary = story.primaryCategory ?? story.category;
+  return primary === tag || story.category === tag;
 }
 
 /** Interest id → granular tags for personalization. */

@@ -2,6 +2,8 @@ import { getStorySourceTier } from "@/lib/editorial/source-authority";
 import {
   assessStrategicSignal,
   getStrategicSignal,
+  isNoiseStory,
+  meetsCriticalBar,
 } from "@/lib/signal/strategic-score";
 import type {
   EditorialImportanceLabel,
@@ -111,7 +113,9 @@ export function scoreStoryImportance(
 
   let raw = 1 + weighted * 9;
 
-  if (story.lowSignal) {
+  if (isNoiseStory(story)) {
+    raw = Math.min(raw, 3.5);
+  } else if (story.lowSignal) {
     raw = Math.min(raw, 4);
   }
 
@@ -120,22 +124,22 @@ export function scoreStoryImportance(
 
 export function importanceLabelFromScore(
   score: number,
-  sourceCount = 1,
-  lowSignal = false
+  story: Story
 ): EditorialImportanceLabel {
-  if (lowSignal) return "Low";
-  if (score >= 9 && sourceCount >= 2) return "Critical";
-  if (score >= 7) return "High";
-  if (score >= 4) return "Moderate";
+  if (isNoiseStory(story)) return "Low";
+  if (score >= 9 && meetsCriticalBar(story)) return "Critical";
+  if (score >= 7.5) return "High";
+  if (score >= 4) return "Medium";
   return "Low";
 }
 
 export function isCriticalForDisplay(story: Story): boolean {
-  if (story.lowSignal) return false;
+  if (isNoiseStory(story)) return false;
   return (
     story.importanceLabel === "Critical" &&
     (story.importanceScore ?? 0) >= 9 &&
-    getStrategicSignal(story) >= 0.4
+    meetsCriticalBar(story) &&
+    getStrategicSignal(story) >= 0.5
   );
 }
 
@@ -147,7 +151,7 @@ export function legacyImportanceFromLabel(
       return "critical";
     case "High":
       return "high";
-    case "Moderate":
+    case "Medium":
     case "Low":
     default:
       return "medium";
@@ -177,13 +181,10 @@ export function applyEditorialImportanceScores(
       ...story,
       strategicSignal: assessment.strategicSignal,
       lowSignal: assessment.lowSignal,
+      signalClass: assessment.signalClass,
     };
     const importanceScore = scoreStoryImportance(withSignal, { sourceCount });
-    const importanceLabel = importanceLabelFromScore(
-      importanceScore,
-      sourceCount,
-      assessment.lowSignal
-    );
+    const importanceLabel = importanceLabelFromScore(importanceScore, withSignal);
 
     return {
       ...withSignal,
@@ -195,6 +196,10 @@ export function applyEditorialImportanceScores(
 }
 
 export function compareByEditorialImportance(a: Story, b: Story): number {
+  const aNoise = isNoiseStory(a);
+  const bNoise = isNoiseStory(b);
+  if (aNoise !== bNoise) return aNoise ? 1 : -1;
+
   const corrDiff =
     (b.corroborationScore ?? 0) - (a.corroborationScore ?? 0);
   if (Math.abs(corrDiff) > 0.1) return corrDiff > 0 ? 1 : -1;

@@ -106,3 +106,82 @@
   border: 1px solid rgb(255 255 255 / 0.12) !important;
   box-shadow: 0 20px 50px -12px rgb(0 0 0 / 0.65) !important;
 }
+
+/* Auth pages — full Clerk readability (no glass overlay, no faded text) */
+.auth-clerk-root {
+  position: relative;
+  z-index: 10;
+  isolation: isolate;
+}
+
+.auth-clerk-root .cl-card,
+.auth-clerk-root .cl-cardBox,
+.auth-clerk-root .cl-main,
+.auth-clerk-root .cl-footer {
+  background-color: #18181b !important;
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.auth-clerk-root .cl-modalBackdrop,
+.auth-clerk-root .cl-backdrop {
+  display: none !important;
+}
+
+.auth-clerk-root .cl-headerTitle,
+.auth-clerk-root .cl-headerSubtitle,
+.auth-clerk-root .cl-footerActionText,
+.auth-clerk-root .cl-footerActionLink,
+.auth-clerk-root .cl-formFieldLabel,
+.auth-clerk-root .cl-formFieldHintText,
+.auth-clerk-root .cl-formFieldErrorText,
+.auth-clerk-root .cl-dividerText,
+.auth-clerk-root .cl-formHeaderTitle,
+.auth-clerk-root .cl-formHeaderSubtitle,
+.auth-clerk-root .cl-backLink,
+.auth-clerk-root .cl-identityPreviewText,
+.auth-clerk-root .cl-alertText,
+.auth-clerk-root .cl-formResendCodeLink,
+.auth-clerk-root .cl-socialButtonsBlockButtonText,
+.auth-clerk-root .cl-alternativeMethodsBlockButtonText {
+  opacity: 1 !important;
+}
+
+.auth-clerk-root .cl-headerTitle,
+.auth-clerk-root .cl-formHeaderTitle {
+  color: #fafafa !important;
+}
+
+.auth-clerk-root .cl-headerSubtitle,
+.auth-clerk-root .cl-formHeaderSubtitle {
+  color: #d4d4d8 !important;
+}
+
+.auth-clerk-root .cl-footerActionText,
+.auth-clerk-root .cl-dividerText,
+.auth-clerk-root .cl-formFieldHintText {
+  color: #a1a1aa !important;
+}
+
+.auth-clerk-root .cl-footerActionLink,
+.auth-clerk-root .cl-formFieldLabel,
+.auth-clerk-root .cl-backLink,
+.auth-clerk-root .cl-formResendCodeLink {
+  color: #e4e4e7 !important;
+}
+
+.auth-clerk-root .cl-footerActionLink:hover,
+.auth-clerk-root .cl-backLink:hover,
+.auth-clerk-root .cl-formResendCodeLink:hover {
+  color: #fafafa !important;
+}
+
+.auth-clerk-root .cl-formFieldErrorText {
+  color: #f87171 !important;
+}
+
+.auth-clerk-root .cl-internal,
+.auth-clerk-root .cl-scrollBox {
+  opacity: 1 !important;
+}

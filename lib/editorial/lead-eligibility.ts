@@ -2,12 +2,17 @@ import {
   getStorySourceTier,
   requiresCorroboration,
 } from "@/lib/editorial/source-authority";
-import { getStrategicSignal, isLowSignalStory } from "@/lib/signal/strategic-score";
+import {
+  getStrategicSignal,
+  isNoiseStory,
+} from "@/lib/signal/strategic-score";
+import { intelligenceDeclaresLowValue } from "@/lib/intelligence/irrelevance";
 import type { Story } from "@/lib/types";
 
 /** Hero / lead placement — stricter than general feed inclusion. */
 export function isLeadCandidate(story: Story): boolean {
-  if (isLowSignalStory(story)) return false;
+  if (isNoiseStory(story)) return false;
+  if (intelligenceDeclaresLowValue(story)) return false;
 
   const tier = getStorySourceTier(story);
   const strategic = getStrategicSignal(story);
@@ -18,7 +23,7 @@ export function isLeadCandidate(story: Story): boolean {
     return (
       clusterSize >= 2 &&
       corroboration >= 0.45 &&
-      strategic >= 0.38
+      strategic >= 0.42
     );
   }
 
@@ -27,12 +32,12 @@ export function isLeadCandidate(story: Story): boolean {
   }
 
   if (tier === 1) {
-    return strategic >= 0.28 && (story.importanceScore ?? 0) >= 6;
+    return strategic >= 0.35 && (story.importanceScore ?? 0) >= 7;
   }
 
   if (tier === 2) {
     return (
-      strategic >= 0.32 &&
+      strategic >= 0.38 &&
       (story.importanceScore ?? 0) >= 7 &&
       (clusterSize >= 2 || corroboration >= 0.35)
     );

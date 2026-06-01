@@ -5,6 +5,7 @@ import { StoryImage } from "@/components/StoryImage";
 import { SaveStoryButton } from "@/components/SaveStoryButton";
 import { motion } from "framer-motion";
 import { getCategoryLabel } from "@/lib/data/categories";
+import { getDisplayTags } from "@/lib/intelligence/story-tags";
 import { StoryDate } from "@/components/StoryDate";
 import { isCriticalForDisplay } from "@/lib/importance-scoring";
 import type { Story } from "@/lib/types";
@@ -28,6 +29,7 @@ export function StoryCard({
   const showCritical = usePersonalizedImportance
     ? story.personalizedImportanceLabel === "Critical"
     : isCriticalForDisplay(story);
+  const displayTags = getDisplayTags(story, 3);
 
   return (
     <motion.article
@@ -86,6 +88,14 @@ export function StoryCard({
                 Critical
               </span>
             )}
+            {displayTags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full border border-white/10 bg-zinc-950/50 px-2 py-0.5 text-[10px] text-zinc-400 backdrop-blur-md"
+              >
+                {tag}
+              </span>
+            ))}
           </div>
           <StoryDate
             publishedAt={story.publishedAt}

@@ -1,4 +1,4 @@
-import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
+import type { BriefingCadence, BriefingMode } from "@/lib/briefing/types";
 import type { OnboardingProfile } from "@/lib/types";
 
 const CAREER_WEEKLY_QUESTION: Record<
@@ -77,11 +77,14 @@ export function buildReaderProfileBlock(
 }
 
 export function buildWeeklyModeFrame(
-  mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
+  mode: BriefingMode,
+  profile: OnboardingProfile | null,
+  cadence: BriefingCadence = "weekly"
 ): string {
+  const period = cadence === "daily" ? "today" : "this week";
+
   if (mode === "global") {
-    return `GLOBAL lens — answer: "What happened in the world this week?"
+    return `GLOBAL lens — answer: "What happened in the world ${period}?"
 - One dominant world narrative only.
 - Institutions, regions, industries — not personal portfolio or career advice.`;
   }
@@ -91,9 +94,9 @@ export function buildWeeklyModeFrame(
     ? CAREER_WEEKLY_QUESTION[profile.career]
     : "Which developments matter most for this reader's decisions?";
 
-  return `FOR YOU lens — answer: "${question}"
+  return `FOR YOU lens — answer: "${question.replace("this week", period)}"
 ${profileBlock}
 - MULTI-NARRATIVE synthesis: weave every thread below that matters to this reader.
-- Explain what affects THEM specifically — not a filtered global summary.
-- Do NOT collapse unrelated threads into one macro story.`;
+- For each thread: why it matters to them, decisions influenced, what to monitor, what would invalidate.
+- Not a filtered global summary or headline recap.`;
 }

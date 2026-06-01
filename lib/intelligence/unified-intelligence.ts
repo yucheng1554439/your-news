@@ -6,12 +6,14 @@ import { parseStoryIntelligenceResponse } from "@/lib/intelligence/parse-tagged-
 import { signalsFromProfile } from "@/lib/personalization/signals";
 import { canPersonalize } from "@/lib/personalization/context";
 import type { StoryIntelligencePackage } from "@/lib/intelligence/types";
-import type { OnboardingProfile, Story } from "@/lib/types";
+import type { ClusterIntelligence, OnboardingProfile, Story } from "@/lib/types";
 
 export async function generateUnifiedIntelligence(
   story: Story,
   profile: OnboardingProfile | null,
-  profileFingerprint: string
+  profileFingerprint: string,
+  cluster?: ClusterIntelligence | null,
+  materialStories?: Story[]
 ): Promise<
   | { ok: true; package: StoryIntelligencePackage }
   | { ok: false; error: string }
@@ -22,8 +24,13 @@ export async function generateUnifiedIntelligence(
   const result = await callAIJson({
     label: `Story intelligence · ${story.slug.slice(0, 48)}`,
     system:
-      "You brief a colleague in plain English. Facts first, cautious implications second. No finance jargon, macro fanfiction, or pretend certainty.",
-    user: buildUnifiedIntelligencePrompt(story, profile),
+      "You are a personal intelligence advisor when a reader profile is present: explain what happened, why it matters to THEM, what decisions it may influence, and what to monitor. Facts first; no news narration.",
+    user: buildUnifiedIntelligencePrompt(
+      story,
+      profile,
+      cluster,
+      materialStories
+    ),
     temperature: personalized ? 0.32 : 0.28,
     maxTokens: 720,
     responseFormat: "tags",

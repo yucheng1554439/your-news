@@ -1,5 +1,6 @@
 import "server-only";
 
+import { recordAIResponse } from "@/lib/intelligence/latest-ai-response";
 import { extractJsonPayload } from "@/lib/intelligence/provider/extract-json";
 import { getOpenAIModel } from "@/lib/intelligence/provider/config";
 import type {
@@ -146,21 +147,42 @@ export async function callOpenAIJson<T>(
         continue;
       }
 
-      const parsed = options.parse(contentForParser(content, format));
+      const parserInput = contentForParser(content, format);
+      const parsed = options.parse(parserInput);
       if (!parsed) {
         lastError =
           format === "tags"
             ? "Could not parse OpenAI tagged response"
             : "Could not parse OpenAI JSON";
+        recordAIResponse({
+          label: options.label,
+          provider: "openai",
+          format,
+          ok: false,
+          error: lastError,
+          raw: content,
+        });
         logOpenAI("warn", `${options.label} parse failed`, {
           attempt,
           durationMs,
           format,
-          preview: content.slice(0, 200),
+          rawLength: content.length,
+          preview: content.slice(0, 400),
         });
+        console.warn(
+          `[PARSE] OpenAI raw saved — GET /api/debug/latest-claude-response?failed=1 (len=${content.length})`
+        );
         await delay(attempt * 400);
         continue;
       }
+
+      recordAIResponse({
+        label: options.label,
+        provider: "openai",
+        format,
+        ok: true,
+        raw: content,
+      });
 
       const meta: AICallMeta = {
         provider: "openai",

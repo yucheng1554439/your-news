@@ -1,5 +1,6 @@
 import { getStorySourceTier } from "@/lib/editorial/source-authority";
 import { extractEntities, detectNarrativeTheme } from "@/lib/editorial/narrative-clusters";
+import { storyMatchesTag } from "@/lib/intelligence/story-tags";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 const GAMING_PATTERN =
@@ -61,9 +62,7 @@ const CAREER_THEME_AFFINITY: Record<
 };
 
 function matchesSemanticTag(story: Story, tag: string): boolean {
-  if (story.tags.includes(tag)) return true;
-  if (tag === "science" && story.tags.includes("science")) return true;
-  return false;
+  return storyMatchesTag(story, tag);
 }
 
 function interestSemanticScore(story: Story, profile: OnboardingProfile): number {
@@ -73,10 +72,14 @@ function interestSemanticScore(story: Story, profile: OnboardingProfile): number
     for (const tag of tags) {
       if (matchesSemanticTag(story, tag)) score += 2.5;
     }
-    if (interest === "ai" && story.tags.includes("gaming")) {
+    if (interest === "ai" && storyMatchesTag(story, "gaming")) {
       score -= 4;
     }
-    if (interest === "ai" && story.tags.includes("consumer-tech") && !story.tags.includes("ai-infrastructure")) {
+    if (
+      interest === "ai" &&
+      storyMatchesTag(story, "consumer-tech") &&
+      !storyMatchesTag(story, "ai-infrastructure")
+    ) {
       score -= 1.5;
     }
   }
@@ -109,7 +112,7 @@ function practicalRelevancePenalty(story: Story, profile: OnboardingProfile): nu
   }
   if (CONSUMER_PROMO.test(blob)) penalty += 3;
   if (getStorySourceTier(story) === 3) penalty += 2;
-  if (story.tags.includes("gaming") && profile.interests.includes("ai")) {
+  if (storyMatchesTag(story, "gaming") && profile.interests.includes("ai")) {
     penalty += 3;
   }
 

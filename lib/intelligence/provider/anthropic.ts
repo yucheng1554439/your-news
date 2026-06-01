@@ -1,5 +1,6 @@
 import "server-only";
 
+import { recordAIResponse } from "@/lib/intelligence/latest-ai-response";
 import { extractJsonPayload } from "@/lib/intelligence/provider/extract-json";
 import { getAnthropicModel } from "@/lib/intelligence/provider/config";
 import type {
@@ -149,21 +150,42 @@ export async function callAnthropicJson<T>(
         continue;
       }
 
-      const parsed = options.parse(contentForParser(raw, format));
+      const parserInput = contentForParser(raw, format);
+      const parsed = options.parse(parserInput);
       if (!parsed) {
         lastError =
           format === "tags"
             ? "Could not parse Anthropic tagged response"
             : "Could not parse Anthropic JSON";
+        recordAIResponse({
+          label: options.label,
+          provider: "anthropic",
+          format,
+          ok: false,
+          error: lastError,
+          raw,
+        });
         logAnthropic("warn", `${options.label} parse failed`, {
           attempt,
           durationMs,
           format,
-          preview: raw.slice(0, 200),
+          rawLength: raw.length,
+          preview: raw.slice(0, 400),
         });
+        console.warn(
+          `[PARSE] Anthropic raw saved — GET /api/debug/latest-claude-response?failed=1 (len=${raw.length})`
+        );
         await delay(attempt * 400);
         continue;
       }
+
+      recordAIResponse({
+        label: options.label,
+        provider: "anthropic",
+        format,
+        ok: true,
+        raw,
+      });
 
       const meta: AICallMeta = {
         provider: "anthropic",

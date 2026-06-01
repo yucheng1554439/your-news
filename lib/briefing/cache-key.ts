@@ -2,14 +2,15 @@ import { createHash } from "crypto";
 import { getProfileBriefingFingerprint } from "@/lib/briefing/profile-fingerprint";
 import { getModelCacheToken } from "@/lib/intelligence/provider/config";
 import type { OnboardingProfile } from "@/lib/types";
-import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
+import type { BriefingCadence, BriefingMode } from "@/lib/briefing/types";
 
 export { getProfileBriefingFingerprint } from "@/lib/briefing/profile-fingerprint";
 
 export function weeklyBriefingCacheKey(
-  mode: WeeklyBriefingMode,
+  mode: BriefingMode,
   profile: OnboardingProfile | null,
-  narrativeClusterId: string
+  narrativeClusterId: string,
+  cadence: BriefingCadence = "weekly"
 ): string {
   const clusterHash = createHash("sha256")
     .update(narrativeClusterId)
@@ -19,5 +20,5 @@ export function weeklyBriefingCacheKey(
   const profileFingerprint = getProfileBriefingFingerprint(profile);
   const modelToken = getModelCacheToken();
 
-  return `cluster-v14-multi:${modelToken}:${mode}:${profileFingerprint}:${clusterHash}`;
+  return `brief-v17:${cadence}:${modelToken}:${profileFingerprint}:${clusterHash}`;
 }

@@ -3,12 +3,17 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { mergePublicMetadata } from "@/lib/clerk/merge-public-metadata";
 import {
+  parseReadingSignalsFromMetadata,
+  recordStorySaved,
+} from "@/lib/personalization/reading-signals-metadata";
+import {
   MAX_SAVED_STORIES,
   parseSavedStoriesFromMetadata,
   storyToSavedRef,
   type SavedStoryRef,
   type SavedStoriesMetadata,
 } from "@/lib/saved-stories/metadata";
+import { getAllStoryTags } from "@/lib/intelligence/story-tags";
 import type { Story } from "@/lib/types";
 
 async function readSavedMetadata(userId: string): Promise<{
@@ -59,9 +64,22 @@ export async function toggleSavedStory(
       updatedAt: Date.now(),
     };
 
+    let nextMeta = mergePublicMetadata(publicMetadata, { savedStories });
+
+    if (!exists) {
+      const reading = parseReadingSignalsFromMetadata(publicMetadata);
+      nextMeta = mergePublicMetadata(nextMeta, {
+        readingSignals: recordStorySaved(
+          reading,
+          getAllStoryTags(story),
+          story.primaryCategory ?? story.category
+        ),
+      });
+    }
+
     const client = await clerkClient();
     await client.users.updateUserMetadata(userId, {
-      publicMetadata: mergePublicMetadata(publicMetadata, { savedStories }),
+      publicMetadata: nextMeta,
     });
 
     return { ok: true, saved: !exists, items };

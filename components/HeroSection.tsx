@@ -1,16 +1,21 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { AnimatedEditorialText } from "@/components/AnimatedEditorialText";
+import { BriefingMemo } from "@/components/BriefingMemo";
+import { BriefingProvenance } from "@/components/BriefingProvenance";
 import { IntelligenceRefreshControl } from "@/components/IntelligenceRefreshControl";
 import { ToggleTabs, type FeedMode } from "@/components/ToggleTabs";
 import { AIStatusBanner } from "@/components/AIStatusBanner";
-import type { WeeklyBriefing } from "@/lib/weekly-briefing";
+import { cadenceLabel } from "@/lib/briefing/cadence";
+import { formatBriefingForDisplay } from "@/lib/briefing/format-display";
+import type { BriefingCadence, IntelligenceBriefing } from "@/lib/briefing/types";
 
 interface HeroSectionProps {
   feedMode: FeedMode;
   onFeedModeChange: (mode: FeedMode) => void;
-  briefing: WeeklyBriefing;
+  cadence: BriefingCadence;
+  onCadenceChange: (cadence: BriefingCadence) => void;
+  briefing: IntelligenceBriefing;
   lastUpdated?: number | null;
   storiesFetchedAt?: number;
   hasIntelligenceSnapshot?: boolean;
@@ -19,9 +24,44 @@ interface HeroSectionProps {
   onRefreshingChange?: (refreshing: boolean) => void;
 }
 
+function CadenceToggle({
+  value,
+  onChange,
+}: {
+  value: BriefingCadence;
+  onChange: (c: BriefingCadence) => void;
+}) {
+  return (
+    <div
+      className="inline-flex rounded-full border border-white/10 bg-white/5 p-0.5 text-xs"
+      role="tablist"
+      aria-label="Briefing cadence"
+    >
+      {(["daily", "weekly"] as const).map((c) => (
+        <button
+          key={c}
+          type="button"
+          role="tab"
+          aria-selected={value === c}
+          onClick={() => onChange(c)}
+          className={`rounded-full px-3 py-1 capitalize transition-colors ${
+            value === c
+              ? "bg-white/15 text-white"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          {c}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function HeroSection({
   feedMode,
   onFeedModeChange,
+  cadence,
+  onCadenceChange,
   briefing,
   lastUpdated = null,
   storiesFetchedAt,
@@ -30,7 +70,10 @@ export function HeroSection({
   isRefreshing = false,
   onRefreshingChange,
 }: HeroSectionProps) {
-  const animationKey = `${feedMode}-${briefing.mode}-${briefing.headline}`;
+  const animationKey = `${feedMode}-${briefing.mode}-${briefing.cadence}-${briefing.headline}`;
+  const periodLabel = briefing.periodLabel ?? briefing.weekLabel ?? "";
+  const displayBody = formatBriefingForDisplay(briefing);
+  const isForYou = briefing.mode === "for-you";
 
   return (
     <motion.section
@@ -66,10 +109,10 @@ export function HeroSection({
         <div className="min-w-0 max-w-3xl flex-1 space-y-4">
           <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
             <span className="uppercase tracking-[0.2em]">
-              Weekly Briefing
+              {cadenceLabel(cadence)}
             </span>
             <span className="text-zinc-600">·</span>
-            <span>{briefing.weekLabel}</span>
+            <span>{periodLabel}</span>
             <span className="text-zinc-600">·</span>
             <span className="text-zinc-500">
               {feedMode === "personalized" ? "For You" : "Global"}
@@ -89,22 +132,13 @@ export function HeroSection({
           >
             {briefing.headline}
           </motion.h1>
-          <AnimatedEditorialText
-            animationKey={`${animationKey}-summary`}
-            text={briefing.summary}
-            animate={!isRefreshing}
-            className="max-w-2xl whitespace-pre-line text-sm leading-relaxed text-zinc-300 sm:text-[15px] sm:leading-6"
-          />
-          {briefing.keySignal ? (
-            <AnimatedEditorialText
-              animationKey={`${animationKey}-signal`}
-              text={briefing.keySignal}
-              animate={!isRefreshing}
-              className="max-w-2xl border-l-2 border-white/20 pl-4 text-sm leading-relaxed text-zinc-400"
-            />
+          <BriefingMemo key={animationKey} text={displayBody} />
+          {briefing.provenance ? (
+            <BriefingProvenance provenance={briefing.provenance} />
           ) : null}
         </div>
-        <div className="flex w-full shrink-0 flex-col gap-4 sm:w-auto sm:items-end">
+        <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:items-end">
+          <CadenceToggle value={cadence} onChange={onCadenceChange} />
           <IntelligenceRefreshControl
             lastUpdated={lastUpdated}
             storiesFetchedAt={storiesFetchedAt}

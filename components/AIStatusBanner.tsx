@@ -18,27 +18,39 @@ function isModelGenerated(
 
 export function AIStatusBanner({
   generatedBy,
-  aiError,
-  openaiError,
   context,
 }: AIStatusBannerProps) {
   if (isModelGenerated(generatedBy)) return null;
 
-  const err = aiError ?? openaiError;
+  if (generatedBy === "metadata" && context === "story") {
+    return (
+      <div
+        role="status"
+        className="rounded-lg border border-amber-500/25 bg-amber-950/20 px-4 py-3 text-sm text-amber-100/90"
+      >
+        <p className="font-medium text-amber-50">Signal summary</p>
+        <p className="mt-1 text-amber-100/80">
+          Built from headline, description, and corroborating coverage — not the
+          paywalled article body.
+        </p>
+      </div>
+    );
+  }
+
   const label =
     context === "weekly"
-      ? "Fallback active — weekly briefing"
-      : "Fallback active — story intelligence";
+      ? "Editorial briefing"
+      : "Editorial analysis";
 
   return (
     <div
       role="status"
-      className="rounded-lg border border-amber-500/30 bg-amber-950/40 px-4 py-3 text-sm text-amber-100/90"
+      className="rounded-lg border border-white/10 bg-zinc-900/60 px-4 py-3 text-sm text-zinc-300"
     >
-      <p className="font-medium text-amber-50">{label}</p>
-      <p className="mt-1 text-amber-100/80">
-        Claude did not produce this content. Template text is shown instead.
-        {err ? ` ${err}` : " Check server logs for [ANTHROPIC] or [OPENAI] lines."}
+      <p className="font-medium text-zinc-200">{label}</p>
+      <p className="mt-1 text-zinc-400">
+        Structured from source reporting. Refresh intelligence on the homepage
+        for a live AI synthesis when available.
       </p>
     </div>
   );

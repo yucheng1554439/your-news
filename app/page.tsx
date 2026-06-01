@@ -14,6 +14,7 @@ export default async function HomePage() {
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
         <Dashboard
           stories={dashboard.stories}
+          globalStories={dashboard.globalStories}
           briefings={dashboard.briefings}
           intelligenceUpdatedAt={dashboard.intelligenceUpdatedAt}
           storiesFetchedAt={dashboard.fetchedAt}
@@ -25,6 +26,7 @@ export default async function HomePage() {
           cacheStatus={dashboard.cacheStatus}
           fromPersistentStore={dashboard.fromPersistentStore}
           profileFromServer={profile}
+          userIntelligence={dashboard.userIntelligence}
         />
       </main>
     </div>

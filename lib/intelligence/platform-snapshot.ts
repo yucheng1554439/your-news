@@ -1,15 +1,45 @@
 import "server-only";
 
 import { getProfileBriefingFingerprint } from "@/lib/briefing/profile-fingerprint";
+import { logBriefing } from "@/lib/briefing/briefing-log";
 import { getActiveModel } from "@/lib/intelligence/provider/config";
 import {
-  resolveWeeklyBriefing,
-  type WeeklyBriefing,
-  type WeeklyBriefingMode,
+  resolveBriefing,
+  type IntelligenceBriefing,
+  type BriefingMode,
 } from "@/lib/briefing/weekly-engine";
+import type { BriefingCadence, CadenceBriefings } from "@/lib/briefing/types";
+import {
+  briefingMatchesCadence,
+  normalizeBriefing,
+} from "@/lib/briefing/types";
+import { briefingIsUserSafe } from "@/lib/briefing/weekly-rescue";
+import { buildBehavioralModelNote } from "@/lib/personalization/behavioral-model";
+import { formatIntelligenceProfileForPrompt } from "@/lib/personalization/intelligence-profile";
+import {
+  buildDailyExclusion,
+  selectWeeklyBriefingSelection,
+} from "@/lib/briefing/weekly-selection";
+import { briefingContainsRefusal } from "@/lib/intelligence/model-refusal";
 import { buildWeeklyBriefingSync } from "@/lib/weekly-briefing";
+import { getSavedStoriesFromClerk } from "@/app/actions/saved-stories";
+import {
+  getReadingSignalsFromClerk,
+  recordIntelligenceRefreshForUser,
+} from "@/app/actions/reading-signals";
 import { getStoryPool } from "@/lib/news/story-pool";
-import { attachPersonalizedImportance } from "@/lib/personalization/engine";
+import { applyEditorialCognition } from "@/lib/editorial/apply-cognition";
+import { batchEnrichStoriesForSnapshot } from "@/lib/intelligence/batch-story-intelligence";
+import { selectStoryIntelligenceTargets } from "@/lib/intelligence/story-snapshot-targets";
+import { enrichStoryTagsBatch } from "@/lib/intelligence/story-tags";
+import {
+  auditHomepagePlacements,
+  logHomepageRankAudit,
+} from "@/lib/ranking/explain";
+import { mergeStoryIntelligenceSafely } from "@/lib/intelligence/provenance";
+import { rankStoriesForUser, rankStoriesGlobal } from "@/lib/personalization/engine";
+import { buildUserIntelligenceOrNull } from "@/lib/personalization/resolve-user-intelligence";
+import type { UserIntelligenceProfile } from "@/lib/personalization/user-intelligence-types";
 import {
   readPlatformIntelligenceSnapshot,
   recordRefreshAttempt,
@@ -23,7 +53,6 @@ import {
   pingRedis,
 } from "@/lib/persistence/redis-client";
 import { isRemotePersistenceConfigured } from "@/lib/persistence/kv-store";
-import { enrichStories } from "@/lib/summaries";
 import type { OnboardingProfile, Story } from "@/lib/types";
 import type { StoryPoolStatus } from "@/lib/news/story-pool";
 
@@ -31,11 +60,15 @@ const REFRESH_LOCK_KEY = "__your_news_intelligence_refresh__";
 
 export type PlatformDashboard = {
   stories: Story[];
-  briefings: Partial<Record<WeeklyBriefingMode, WeeklyBriefing>>;
+  /** Full editorial-ranked pool — always >= For You subset breadth. */
+  globalStories: Story[];
+  userIntelligence: UserIntelligenceProfile | null;
+  briefings: CadenceBriefings;
   error: string | null;
   fromCache: boolean;
   fetchedAt: number;
   intelligenceUpdatedAt: number | null;
+  cadenceUpdatedAt: PlatformIntelligenceSnapshot["cadenceUpdatedAt"] | null;
   cacheStatus: StoryPoolStatus;
   liveDelayed: boolean;
   fromPersistentStore: boolean;
@@ -53,33 +86,41 @@ function mergeEnrichedStories(
   return poolStories.map((story) => {
     const enriched = enrichedBySlug[story.slug];
     if (!enriched) return story;
-    return {
-      ...story,
-      summary: enriched.summary,
-      whyItMatters: enriched.whyItMatters,
-      whyItMattersToYou: enriched.whyItMattersToYou,
-      nextWatch: enriched.nextWatch,
-      economicImplications: enriched.economicImplications,
-      perspectives: enriched.perspectives,
-      marketReaction: enriched.marketReaction,
-      sourceContext: enriched.sourceContext,
-      intelligenceGeneratedBy: enriched.intelligenceGeneratedBy,
-      intelligenceAiError: enriched.intelligenceAiError,
-      intelligenceOpenaiError: enriched.intelligenceOpenaiError,
-    };
+    return mergeStoryIntelligenceSafely(
+      story,
+      enriched,
+      "platform-snapshot merge"
+    );
   });
 }
 
 function briefingForMode(
   snapshot: PlatformIntelligenceSnapshot | null,
   stories: Story[],
-  mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
-): WeeklyBriefing {
-  const cached = snapshot?.briefings?.[mode];
-  if (cached && cached.mode === mode) return cached;
+  mode: BriefingMode,
+  profile: OnboardingProfile | null,
+  cadence: BriefingCadence,
+  corpus: Story[]
+): IntelligenceBriefing {
+  const cached = snapshot?.briefings?.[cadence]?.[mode];
+  if (briefingMatchesCadence(cached, mode, cadence)) {
+    if (briefingContainsRefusal(cached!)) {
+      logBriefing(cadence, mode, "snapshot rejected", "cached model refusal");
+      return buildWeeklyBriefingSync(stories, mode, profile, cadence, {
+        corpus,
+      });
+    }
+    if (!briefingIsUserSafe(cached!)) {
+      logBriefing(cadence, mode, "snapshot rejected", "invalid briefing content");
+      return buildWeeklyBriefingSync(stories, mode, profile, cadence, {
+        corpus,
+      });
+    }
+    logBriefing(cadence, mode, "snapshot loaded", "dashboard");
+    return normalizeBriefing(cached!, cadence);
+  }
 
-  return buildWeeklyBriefingSync(stories, mode, profile);
+  return buildWeeklyBriefingSync(stories, mode, profile, cadence, { corpus });
 }
 
 export async function loadPlatformDashboard(
@@ -90,22 +131,83 @@ export async function loadPlatformDashboard(
   const meta = await readIntelligenceMeta();
   const redisDiag = getRedisConfigDiagnostics();
 
-  const merged = mergeEnrichedStories(
-    pool.stories,
-    snapshot?.enrichedBySlug ?? {}
+  const merged = enrichStoryTagsBatch(
+    mergeEnrichedStories(pool.stories, snapshot?.enrichedBySlug ?? {})
   );
 
-  const ranked = profile?.completed
-    ? attachPersonalizedImportance(merged, profile)
-    : merged;
+  const savedRefs = profile?.completed ? await getSavedStoriesFromClerk() : [];
+  const reading = profile?.completed
+    ? await getReadingSignalsFromClerk()
+    : null;
 
-  const briefings: Partial<Record<WeeklyBriefingMode, WeeklyBriefing>> = {
-    global: briefingForMode(snapshot, ranked, "global", profile),
-    "for-you": briefingForMode(snapshot, ranked, "for-you", profile),
+  const userIntelligence =
+    profile?.completed && reading
+      ? buildUserIntelligenceOrNull(profile, savedRefs, reading, merged)
+      : null;
+
+  const rankedPersonal = profile?.completed
+    ? rankStoriesForUser(merged, profile, userIntelligence, reading)
+    : merged;
+  const rankedGlobal = rankStoriesGlobal(merged);
+
+  const briefings: CadenceBriefings = {
+    daily: {
+      global: briefingForMode(
+        snapshot,
+        rankedGlobal,
+        "global",
+        profile,
+        "daily",
+        merged
+      ),
+      "for-you": briefingForMode(
+        snapshot,
+        rankedPersonal,
+        "for-you",
+        profile,
+        "daily",
+        merged
+      ),
+    },
+    weekly: {
+      global: briefingForMode(
+        snapshot,
+        rankedGlobal,
+        "global",
+        profile,
+        "weekly",
+        merged
+      ),
+      "for-you": briefingForMode(
+        snapshot,
+        rankedPersonal,
+        "for-you",
+        profile,
+        "weekly",
+        merged
+      ),
+    },
   };
 
+  if (profile?.completed) {
+    const audits = auditHomepagePlacements(
+      rankedPersonal,
+      rankedGlobal,
+      profile,
+      userIntelligence
+    );
+    if (
+      process.env.NODE_ENV === "development" ||
+      process.env.DEBUG_RANKING === "1"
+    ) {
+      logHomepageRankAudit(audits);
+    }
+  }
+
   return {
-    stories: ranked,
+    stories: rankedPersonal,
+    globalStories: rankedGlobal,
+    userIntelligence,
     briefings,
     error: pool.error,
     fromCache: pool.fromCache,
@@ -114,6 +216,7 @@ export async function loadPlatformDashboard(
       snapshot?.updatedAt ??
       meta?.lastSuccessfulRefreshAt ??
       null,
+    cadenceUpdatedAt: snapshot?.cadenceUpdatedAt ?? null,
     cacheStatus: pool.status,
     liveDelayed: false,
     fromPersistentStore: pool.fromPersistentStore,
@@ -145,6 +248,7 @@ export type RefreshIntelligenceResult = {
   ok: boolean;
   updatedAt: number;
   storiesCount: number;
+  storyIntelligenceCount?: number;
   error?: string;
 };
 
@@ -190,6 +294,8 @@ async function runRefresh(
   await recordRefreshAttempt(profileFingerprint);
 
   try {
+    const previousSnapshot = await readPlatformIntelligenceSnapshot();
+
     const pool = await getStoryPool({ forceRefresh: true });
 
     if (pool.stories.length === 0) {
@@ -201,37 +307,171 @@ async function runRefresh(
       };
     }
 
-    const enrichLimit = profile?.completed
-      ? 12
-      : profile?.interests?.length
-        ? 8
-        : 6;
-    const enriched = await enrichStories(pool.stories, {
-      limit: enrichLimit,
+    const tagged = enrichStoryTagsBatch(pool.stories);
+    const rankedBase = applyEditorialCognition(tagged);
+
+    const now = Date.now();
+
+    const savedRefs = await getSavedStoriesFromClerk();
+    const reading = await getReadingSignalsFromClerk();
+
+    const intelligence = buildUserIntelligenceOrNull(
       profile,
-    });
+      savedRefs,
+      reading,
+      rankedBase
+    );
 
-    const enrichedBySlug: Record<string, Story> = {};
-    for (const story of enriched.slice(0, enrichLimit)) {
-      enrichedBySlug[story.slug] = story;
-    }
+    const rankedPersonal =
+      profile?.completed
+        ? rankStoriesForUser(rankedBase, profile, intelligence, reading)
+        : rankedBase;
+    const rankedGlobal = rankStoriesGlobal(rankedBase);
 
-    const [forYouBriefing, globalBriefing] = await Promise.all([
-      resolveWeeklyBriefing(enriched, "for-you", profile, { force: true }),
-      resolveWeeklyBriefing(enriched, "global", profile, { force: true }),
+    const behavioralNote = intelligence
+      ? formatIntelligenceProfileForPrompt(intelligence)
+      : profile?.completed
+        ? buildBehavioralModelNote(profile, savedRefs, rankedBase)
+        : undefined;
+
+    const selectionOpts = { intelligence, corpus: rankedBase };
+
+    const dailyForYouSel = selectWeeklyBriefingSelection(
+      rankedPersonal,
+      "for-you",
+      profile,
+      "daily",
+      selectionOpts
+    );
+    const dailyGlobalSel = selectWeeklyBriefingSelection(
+      rankedGlobal,
+      "global",
+      profile,
+      "daily",
+      selectionOpts
+    );
+    const dailyExclusion = buildDailyExclusion([
+      dailyForYouSel,
+      dailyGlobalSel,
     ]);
 
-    const updatedAt = Date.now();
+    console.log(
+      "[INTELLIGENCE] manual refresh — briefings then story intelligence batch"
+    );
+
+    const [dailyForYou, dailyGlobal] = await Promise.all([
+      resolveBriefing(rankedPersonal, "for-you", profile, {
+        force: true,
+        cadence: "daily",
+        behavioralNote,
+        intelligence,
+        corpus: rankedBase,
+      }),
+      resolveBriefing(rankedGlobal, "global", profile, {
+        force: true,
+        cadence: "daily",
+        behavioralNote,
+        intelligence,
+        corpus: rankedBase,
+      }),
+    ]);
+
+    const weeklyForYouSel = selectWeeklyBriefingSelection(
+      rankedPersonal,
+      "for-you",
+      profile,
+      "weekly",
+      { ...selectionOpts, dailyExclusion: buildDailyExclusion([dailyForYouSel, dailyGlobalSel]) }
+    );
+    const weeklyGlobalSel = selectWeeklyBriefingSelection(
+      rankedGlobal,
+      "global",
+      profile,
+      "weekly",
+      { ...selectionOpts, dailyExclusion: buildDailyExclusion([dailyForYouSel, dailyGlobalSel]) }
+    );
+
+    const [weeklyForYou, weeklyGlobal] = await Promise.all([
+      resolveBriefing(rankedPersonal, "for-you", profile, {
+        force: true,
+        cadence: "weekly",
+        behavioralNote,
+        intelligence,
+        dailyExclusion,
+        corpus: rankedBase,
+      }),
+      resolveBriefing(rankedGlobal, "global", profile, {
+        force: true,
+        cadence: "weekly",
+        behavioralNote,
+        intelligence,
+        dailyExclusion,
+        corpus: rankedBase,
+      }),
+    ]);
+
+    const pickBriefingForSnapshot = (
+      cadence: "daily" | "weekly",
+      mode: "for-you" | "global",
+      generated: Awaited<ReturnType<typeof resolveBriefing>>
+    ) => {
+      if (briefingIsUserSafe(generated)) return generated;
+      const prev = previousSnapshot?.briefings?.[cadence]?.[mode];
+      if (prev && briefingIsUserSafe(prev)) {
+        console.warn(
+          `[WEEKLY_ENGINE] refresh kept previous ${cadence}/${mode} — generated briefing was invalid`
+        );
+        return normalizeBriefing(prev, cadence);
+      }
+      return generated;
+    };
+
+    const safeDailyForYou = pickBriefingForSnapshot("daily", "for-you", dailyForYou);
+    const safeDailyGlobal = pickBriefingForSnapshot("daily", "global", dailyGlobal);
+    const safeWeeklyForYou = pickBriefingForSnapshot("weekly", "for-you", weeklyForYou);
+    const safeWeeklyGlobal = pickBriefingForSnapshot("weekly", "global", weeklyGlobal);
+
+    const briefingSelections = [
+      dailyForYouSel,
+      dailyGlobalSel,
+      weeklyForYouSel,
+      weeklyGlobalSel,
+    ];
+
+    const storyTargets = selectStoryIntelligenceTargets(
+      rankedBase,
+      profile,
+      savedRefs.map((r) => r.slug),
+      briefingSelections,
+      intelligence,
+      30
+    );
+
+    const savedSlugs = savedRefs.map((r) => r.slug);
+    const { enrichedBySlug, generated: storyIntelligenceCount } =
+      await batchEnrichStoriesForSnapshot(
+        storyTargets,
+        profile,
+        rankedBase,
+        savedSlugs
+      );
+
+    void recordIntelligenceRefreshForUser();
+
     const snapshot: PlatformIntelligenceSnapshot = {
-      version: 3,
+      version: 4,
       aiModel: getActiveModel(),
-      updatedAt,
+      updatedAt: now,
       storiesFetchedAt: pool.fetchedAt,
       profileFingerprint,
       enrichedBySlug,
+      cadenceUpdatedAt: {
+        daily: now,
+        weekly: now,
+      },
       briefings: {
-        "for-you": forYouBriefing,
-        global: globalBriefing,
+        daily: { "for-you": safeDailyForYou, global: safeDailyGlobal },
+        weekly: { "for-you": safeWeeklyForYou, global: safeWeeklyGlobal },
       },
     };
 
@@ -239,7 +479,7 @@ async function runRefresh(
     if (!saved) {
       return {
         ok: false,
-        updatedAt,
+        updatedAt: now,
         storiesCount: pool.stories.length,
         error:
           "Intelligence was generated but could not be saved. Configure Upstash Redis / Vercel KV and try again.",
@@ -248,8 +488,9 @@ async function runRefresh(
 
     return {
       ok: true,
-      updatedAt,
+      updatedAt: now,
       storiesCount: pool.stories.length,
+      storyIntelligenceCount,
     };
   } catch (err) {
     const message =
@@ -264,7 +505,7 @@ async function runRefresh(
   }
 }
 
-/** Manual refresh only — dedupes concurrent requests to avoid token bleed. */
+/** Manual refresh — dedupes concurrent requests; regenerates only stale cadences. */
 export async function refreshPlatformIntelligence(
   profile: OnboardingProfile | null
 ): Promise<RefreshIntelligenceResult> {

@@ -1,15 +1,20 @@
 "use server";
 
 import {
-  resolveWeeklyBriefing,
-  type WeeklyBriefingMode,
+  resolveBriefing,
+  type BriefingCadence,
+  type BriefingMode,
 } from "@/lib/briefing/weekly-engine";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
-export async function fetchWeeklyBriefing(
+export async function fetchBriefing(
   stories: Story[],
-  mode: WeeklyBriefingMode,
-  profile: OnboardingProfile | null
+  mode: BriefingMode,
+  profile: OnboardingProfile | null,
+  cadence: BriefingCadence = "weekly"
 ) {
-  return resolveWeeklyBriefing(stories, mode, profile);
+  return resolveBriefing(stories, mode, profile, { cadence });
 }
+
+/** @deprecated Use fetchBriefing */
+export const fetchWeeklyBriefing = fetchBriefing;

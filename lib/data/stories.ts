@@ -1,10 +1,16 @@
 import "server-only";
 
 import { getEnrichedStoryFromSnapshot } from "@/lib/intelligence/platform-snapshot";
+import { hasDisplayableIntelligence } from "@/lib/intelligence/display";
+import {
+  mergeStoryIntelligenceSafely,
+  verifyIntelligenceMatch,
+  logIntelligenceMismatch,
+} from "@/lib/intelligence/provenance";
 import { attachPersonalizedImportance } from "@/lib/personalization/engine";
 import { getStoryPool, invalidateStoryPool } from "@/lib/news/story-pool";
 import { resolveStoryFromPool } from "@/lib/story-resolve";
-import { enrichStories, enrichStoryWithIntelligence } from "@/lib/summaries";
+import { enrichStories } from "@/lib/summaries";
 import type { OnboardingProfile, Story, StoryCategory } from "@/lib/types";
 import type { StoryPoolStatus } from "@/lib/news/story-pool";
 
@@ -47,25 +53,23 @@ async function loadPool(forceRefresh = false) {
 }
 
 function mergeSnapshotIntelligence(base: Story, enriched: Story): Story {
-  return {
-    ...base,
-    summary: enriched.summary,
-    whyItMatters: enriched.whyItMatters,
-    whyItMattersToYou: enriched.whyItMattersToYou,
-    nextWatch: enriched.nextWatch,
-    economicImplications: enriched.economicImplications,
-    perspectives: enriched.perspectives,
-    marketReaction: enriched.marketReaction,
-    sourceContext: enriched.sourceContext,
-    intelligenceGeneratedBy: enriched.intelligenceGeneratedBy,
-    intelligenceAiError: enriched.intelligenceAiError,
-    intelligenceOpenaiError: enriched.intelligenceOpenaiError,
-  };
+  return mergeStoryIntelligenceSafely(base, enriched, "getStoryBySlug snapshot");
 }
 
 async function withSnapshotIntelligence(story: Story): Promise<Story> {
   const enriched = await getEnrichedStoryFromSnapshot(story.slug);
-  return enriched ? mergeSnapshotIntelligence(story, enriched) : story;
+  if (!enriched) return story;
+
+  const match = verifyIntelligenceMatch(story, enriched);
+  if (!match.match) {
+    logIntelligenceMismatch("withSnapshotIntelligence", match);
+    return story;
+  }
+
+  if (hasDisplayableIntelligence(enriched)) {
+    return mergeSnapshotIntelligence(story, enriched);
+  }
+  return story;
 }
 
 export async function getStories(
@@ -156,15 +160,11 @@ export async function getStoryBySlug(
     return merged;
   }
 
-  if (merged.intelligenceGeneratedBy) {
+  if (hasDisplayableIntelligence(merged)) {
     return merged;
   }
 
-  const { ensureStoryArticleBody } = await import(
-    "@/lib/extraction/resolve-body"
-  );
-  const withBody = await ensureStoryArticleBody(merged);
-  return enrichStoryWithIntelligence(withBody, options?.profile ?? null);
+  return merged;
 }
 
 export async function getRelatedStories(

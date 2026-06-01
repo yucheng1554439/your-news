@@ -28,7 +28,7 @@ function memoryCacheKey(slug: string, profileHash: string): string {
 }
 
 /** Bump when prompt/output shape changes to avoid serving stale generations. */
-const GENERATION_VERSION = "tags-v14-multi";
+const GENERATION_VERSION = "tags-v18-anchor-provenance";
 
 export function contentFingerprint(
   headline: string,

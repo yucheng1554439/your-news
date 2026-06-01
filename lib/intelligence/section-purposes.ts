@@ -30,8 +30,8 @@ export const STORY_SECTIONS = {
     task: "2 sentences max. One plausible consequence tied to the article. Label inference if needed (may/could).",
   },
   whyItMattersToYou: {
-    purpose: "How might this affect THIS reader?",
-    task: "2 sentences max. Practical relevance for their role. One check to run. Do not repeat whyItMatters.",
+    purpose: "Personal advisor (THIS reader only)",
+    task: "2–3 sentences. Answer: (1) Why does this matter to them? (2) What decision could it influence? (3) What to monitor next? Use may/could. Do not repeat whyItMatters.",
   },
 } as const;
 

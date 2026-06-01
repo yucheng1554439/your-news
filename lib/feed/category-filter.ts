@@ -1,4 +1,6 @@
+import { storyMatchesTag } from "@/lib/intelligence/story-tags";
 import { storyMatchesThematicTag } from "@/lib/intelligence/thematic-tags";
+import { isNoiseStory } from "@/lib/signal/strategic-score";
 import type { Story, StoryCategory } from "@/lib/types";
 
 export type TopStoryCategory =
@@ -41,13 +43,13 @@ const SPORTS_PATTERN =
   /\b(nfl|nba|mlb|nhl|soccer|football|basketball|baseball|olympics|championship|playoffs|tournament|athlete|coach|espn)\b/i;
 
 function isSportsStory(story: Story): boolean {
-  if (story.tags.includes("sports")) return true;
+  if (storyMatchesTag(story, "sports")) return true;
   const blob = `${story.headline} ${story.summary}`.toLowerCase();
   return SPORTS_PATTERN.test(blob) || story.source.toLowerCase().includes("espn");
 }
 
 function isScienceStory(story: Story): boolean {
-  if (story.tags.includes("science")) return true;
+  if (storyMatchesTag(story, "science")) return true;
   const blob = `${story.headline} ${story.summary}`.toLowerCase();
   return /\b(science|research|study|nasa|space|climate|lab|genome|physics|biology)\b/.test(
     blob
@@ -55,21 +57,23 @@ function isScienceStory(story: Story): boolean {
 }
 
 function matchesAnyTag(story: Story, tags: string[]): boolean {
-  return tags.some((t) => storyMatchesThematicTag(story, t));
+  return tags.some((t) => storyMatchesTag(story, t) || storyMatchesThematicTag(story, t));
 }
 
 export function filterStoriesByCategory(
   stories: Story[],
   category: TopStoryCategory
 ): Story[] {
-  if (category === "all") return stories;
+  if (category === "all") {
+    return stories.filter((s) => !isNoiseStory(s));
+  }
 
   switch (category) {
     case "ai":
       return stories.filter(
         (s) =>
           (AI_CATEGORIES.includes(s.category) || matchesAnyTag(s, AI_TAGS)) &&
-          !s.tags.includes("gaming")
+          !storyMatchesTag(s, "gaming")
       );
     case "markets":
       return stories.filter(

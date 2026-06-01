@@ -1,5 +1,6 @@
 import { normalizeHeadlineKey } from "@/lib/importance-scoring";
 import { getStorySourceTier } from "@/lib/editorial/source-authority";
+import { tagOverlapScore } from "@/lib/intelligence/story-tags";
 import type { Story } from "@/lib/types";
 
 export type NarrativeTheme =
@@ -101,7 +102,11 @@ export type NarrativeCluster = {
 };
 
 function storyBlob(story: Story): string {
-  return `${story.headline} ${story.rawExcerpt ?? story.summary}`;
+  const tagBlob = [
+    ...(story.strategicTags ?? []),
+    ...(story.secondaryTags ?? []),
+  ].join(" ");
+  return `${story.headline} ${story.rawExcerpt ?? story.summary} ${tagBlob}`;
 }
 
 export function extractEntities(story: Story): string[] {
@@ -153,6 +158,14 @@ function shouldCluster(a: Story, b: Story): boolean {
 
   if (sharedEntities >= 2) return true;
   if (sharedEntities >= 1 && themeA === themeB && themeA !== "general") {
+    return true;
+  }
+
+  if (tagOverlapScore(a, b) >= 0.45) return true;
+  if (
+    tagOverlapScore(a, b) >= 0.28 &&
+    (themeA === themeB || themeA === "general" || themeB === "general")
+  ) {
     return true;
   }
 

@@ -6,7 +6,7 @@ import {
   importanceLabelFromScore,
   legacyImportanceFromLabel,
 } from "@/lib/importance-scoring";
-import { assessStrategicSignal } from "@/lib/signal/strategic-score";
+import { assessStrategicSignal, isNoiseStory } from "@/lib/signal/strategic-score";
 import {
   getSourceAuthorityWeight,
   getStorySourceTier,
@@ -19,14 +19,16 @@ import {
   detectNarrativeTheme,
   extractEntities,
 } from "@/lib/editorial/narrative-clusters";
+import { enrichStoryTags } from "@/lib/intelligence/story-tags";
 import type { Story } from "@/lib/types";
 
 function preEnrich(story: Story): Story {
+  const tagged = enrichStoryTags(story);
   return {
-    ...story,
-    sourceTier: getStorySourceTier(story),
-    narrativeTheme: story.narrativeTheme ?? detectNarrativeTheme(story),
-    narrativeEntities: story.narrativeEntities ?? extractEntities(story),
+    ...tagged,
+    sourceTier: getStorySourceTier(tagged),
+    narrativeTheme: tagged.narrativeTheme ?? detectNarrativeTheme(tagged),
+    narrativeEntities: tagged.narrativeEntities ?? extractEntities(tagged),
   };
 }
 
@@ -40,22 +42,30 @@ function scoreWithCognition(
   const authority = getSourceAuthorityWeight(tier);
 
   let strategic = assessment.strategicSignal * (0.85 + authority * 0.15);
-  strategic = Math.min(1, strategic + clusterCorroboration * 0.18);
+  if (!assessment.lowSignal && assessment.signalClass === "signal") {
+    strategic = Math.min(1, strategic + clusterCorroboration * 0.12);
+  }
 
   const withSignal: Story = {
     ...story,
     strategicSignal: strategic,
     lowSignal: assessment.lowSignal,
+    signalClass: assessment.signalClass,
+    corroborationScore: clusterCorroboration,
+    clusterSize,
   };
 
+  const distinctSources = clusterSize >= 2 ? 2 : 1;
   const baseImportance = scoreStoryImportance(withSignal, {
-    sourceCount: clusterSize,
+    sourceCount: distinctSources,
   });
 
   let importanceScore = baseImportance;
 
-  importanceScore += Math.round(authority * 1.2);
-  importanceScore += Math.round(clusterCorroboration * 2.5);
+  if (!isNoiseStory(withSignal)) {
+    importanceScore += Math.round(authority * 0.6);
+    importanceScore += Math.round(clusterCorroboration * 0.8);
+  }
 
   if (tier === 3) {
     importanceScore -= 2;
@@ -64,22 +74,17 @@ function scoreWithCognition(
     }
   }
 
-  if (isPromotionalSource(story)) {
+  if (isPromotionalSource(story) || isNoiseStory(withSignal)) {
     importanceScore = Math.min(importanceScore, 4);
   }
 
   if (requiresCorroboration(story) && clusterSize < 2) {
-    withSignal.lowSignal = withSignal.lowSignal ?? false;
     importanceScore = Math.min(importanceScore, 5);
   }
 
   importanceScore = Math.round(Math.min(10, Math.max(1, importanceScore)));
 
-  const importanceLabel = importanceLabelFromScore(
-    importanceScore,
-    clusterSize,
-    assessment.lowSignal
-  );
+  const importanceLabel = importanceLabelFromScore(importanceScore, withSignal);
 
   return {
     ...withSignal,

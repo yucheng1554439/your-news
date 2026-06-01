@@ -6,25 +6,34 @@ import { HeroSection } from "@/components/HeroSection";
 import { IntelligenceRefreshControl } from "@/components/IntelligenceRefreshControl";
 import { CategoryFilterBar } from "@/components/CategoryFilterBar";
 import { FeedStatus } from "@/components/FeedStatus";
+import { MoreStoriesFeed } from "@/components/MoreStoriesFeed";
 import { StoryCard } from "@/components/StoryCard";
 import {
   filterStoriesByCategory,
   type TopStoryCategory,
 } from "@/lib/feed/category-filter";
+import { CategoryEngagementTracker } from "@/components/CategoryEngagementTracker";
+import { SignalsDashboard } from "@/components/SignalsDashboard";
 import {
   getGlobalStories,
   getPersonalizedStories,
+  rankStoriesForUser,
+  rankStoriesGlobal,
+  selectMoreStoriesForFeed,
+  selectRelevantStoriesForUser,
+  selectTopStoriesForUser,
 } from "@/lib/personalization";
+import type { UserIntelligenceProfile } from "@/lib/personalization/user-intelligence-types";
 import { useOnboardingSync } from "@/hooks/use-onboarding-sync";
-import { useWeeklyBriefing } from "@/hooks/use-weekly-briefing";
+import { useBriefing } from "@/hooks/use-briefing";
 import { getFeaturedStory } from "@/lib/data/featured";
-import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
-import type { WeeklyBriefing } from "@/lib/weekly-briefing";
+import type { CadenceBriefings } from "@/lib/briefing/types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 interface DashboardProps {
   stories: Story[];
-  briefings?: Partial<Record<WeeklyBriefingMode, WeeklyBriefing>>;
+  globalStories?: Story[];
+  briefings?: CadenceBriefings;
   intelligenceUpdatedAt?: number | null;
   storiesFetchedAt?: number;
   hasIntelligenceSnapshot?: boolean;
@@ -35,11 +44,13 @@ interface DashboardProps {
   cacheStatus?: "fresh" | "stale" | "empty";
   fromPersistentStore?: boolean;
   profileFromServer?: OnboardingProfile | null;
+  userIntelligence?: UserIntelligenceProfile | null;
 }
 
 export function Dashboard({
   stories,
-  briefings = {},
+  globalStories,
+  briefings = { daily: {}, weekly: {} },
   intelligenceUpdatedAt = null,
   storiesFetchedAt,
   hasIntelligenceSnapshot = false,
@@ -50,6 +61,7 @@ export function Dashboard({
   cacheStatus,
   fromPersistentStore,
   profileFromServer,
+  userIntelligence = null,
 }: DashboardProps) {
   const router = useRouter();
   const { synced, isOnboardingComplete, profile: syncedProfile } =
@@ -60,11 +72,13 @@ export function Dashboard({
 
   const profile = syncedProfile ?? profileFromServer ?? null;
 
-  const { feedMode, handleFeedModeChange, heroBriefing } = useWeeklyBriefing(
-    stories,
-    profile,
-    briefings
-  );
+  const {
+    feedMode,
+    cadence,
+    handleFeedModeChange,
+    handleCadenceChange,
+    heroBriefing,
+  } = useBriefing(stories, profile, briefings);
 
   useEffect(() => {
     if (!synced) return;
@@ -73,12 +87,28 @@ export function Dashboard({
     }
   }, [synced, isOnboardingComplete, router]);
 
+  const globalPool = useMemo(() => {
+    if (globalStories && globalStories.length >= stories.length) {
+      return globalStories;
+    }
+    return globalStories ?? stories;
+  }, [globalStories, stories]);
+
+  const rankedFullPool = useMemo(() => {
+    if (!profile || stories.length === 0) return [];
+    if (feedMode === "personalized") {
+      return rankStoriesForUser(stories, profile, userIntelligence);
+    }
+    return rankStoriesGlobal(globalPool);
+  }, [profile, feedMode, stories, globalPool, userIntelligence]);
+
   const feedStories = useMemo(() => {
     if (!profile || stories.length === 0) return [];
-    return feedMode === "personalized"
-      ? getPersonalizedStories(profile, stories)
-      : getGlobalStories(stories);
-  }, [profile, feedMode, stories]);
+    if (feedMode === "personalized") {
+      return getPersonalizedStories(profile, stories, undefined, userIntelligence);
+    }
+    return getGlobalStories(globalPool);
+  }, [profile, feedMode, stories, globalPool, userIntelligence]);
 
   useEffect(() => {
     startTransition(() => setTopCategory("all"));
@@ -88,16 +118,66 @@ export function Dashboard({
     getFeaturedStory(
       feedStories.length > 0 ? feedStories : stories,
       profile,
-      feedMode === "personalized"
+      feedMode === "personalized",
+      userIntelligence
     ) ??
     feedStories[0] ??
     stories[0];
-  const relevant = feedStories.slice(0, 4);
-  const topStoriesPool = useMemo(
-    () => filterStoriesByCategory(feedStories, topCategory),
-    [feedStories, topCategory]
+  const relevant = useMemo(() => {
+    if (!profile || feedStories.length === 0) return [];
+    if (feedMode === "personalized") {
+      return selectRelevantStoriesForUser(
+        feedStories,
+        profile,
+        userIntelligence,
+        4
+      );
+    }
+    return feedStories.slice(0, 4);
+  }, [profile, feedStories, feedMode, userIntelligence]);
+  const categoryFilteredPool = useMemo(
+    () => filterStoriesByCategory(rankedFullPool, topCategory),
+    [rankedFullPool, topCategory]
   );
+
+  const topStoriesPool = useMemo(() => {
+    if (feedMode === "personalized" && profile) {
+      const ranked = selectTopStoriesForUser(
+        categoryFilteredPool,
+        profile,
+        userIntelligence,
+        12
+      );
+      return ranked.length > 0 ? ranked : categoryFilteredPool;
+    }
+    return categoryFilteredPool;
+  }, [categoryFilteredPool, feedMode, profile, userIntelligence]);
   const topStories = topStoriesPool.slice(0, 6);
+
+  const moreStoriesExcludeSlugs = useMemo(() => {
+    const slugs = new Set<string>();
+    if (featured) slugs.add(featured.slug);
+    for (const story of relevant) slugs.add(story.slug);
+    for (const story of topStories) slugs.add(story.slug);
+    return slugs;
+  }, [featured, relevant, topStories]);
+
+  const moreStories = useMemo(() => {
+    if (!profile || categoryFilteredPool.length === 0) return [];
+    return selectMoreStoriesForFeed(
+      categoryFilteredPool,
+      moreStoriesExcludeSlugs,
+      profile,
+      userIntelligence,
+      feedMode === "personalized"
+    );
+  }, [
+    profile,
+    categoryFilteredPool,
+    moreStoriesExcludeSlugs,
+    userIntelligence,
+    feedMode,
+  ]);
 
   if (!synced || !isOnboardingComplete || !profile) {
     return (
@@ -146,6 +226,8 @@ export function Dashboard({
       <HeroSection
         feedMode={feedMode}
         onFeedModeChange={handleFeedModeChange}
+        cadence={cadence}
+        onCadenceChange={handleCadenceChange}
         briefing={heroBriefing}
         lastUpdated={intelligenceUpdatedAt}
         storiesFetchedAt={storiesFetchedAt}
@@ -178,7 +260,9 @@ export function Dashboard({
             </h2>
             <p className="mt-1 text-sm text-zinc-400">
               {feedMode === "personalized"
-                ? "Ranked for your career, interests, and focus"
+                ? userIntelligence && userIntelligence.behaviorConfidence >= 0.35
+                  ? `Ranked for you — ${userIntelligence.effectiveLens}`
+                  : "Ranked for your career, interests, and focus"
                 : "Highest editorial weight worldwide"}
             </p>
           </div>
@@ -194,6 +278,13 @@ export function Dashboard({
         </section>
       )}
 
+      <SignalsDashboard
+        stories={feedStories.length > 0 ? feedStories : stories}
+        profile={profile}
+        userIntelligence={userIntelligence}
+        personalized={feedMode === "personalized"}
+      />
+
       <section className="space-y-5">
         <div>
           <h2 className="font-serif text-xl text-white sm:text-2xl">
@@ -205,6 +296,10 @@ export function Dashboard({
               : "Global desk — filter by domain"}
           </p>
         </div>
+        <CategoryEngagementTracker
+          category={topCategory}
+          storyCount={topStoriesPool.length}
+        />
         <CategoryFilterBar value={topCategory} onChange={setTopCategory} />
         {topStories.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -222,6 +317,24 @@ export function Dashboard({
             back after the next refresh.
           </p>
         )}
+      </section>
+
+      <section className="space-y-5">
+        <div>
+          <h2 className="font-serif text-xl text-white sm:text-2xl">
+            More Stories
+          </h2>
+          <p className="mt-1 text-sm text-zinc-400">
+            {feedMode === "personalized"
+              ? "Ranked by strategic relevance — scroll to explore"
+              : "Global desk — ranked by strategic significance"}
+          </p>
+        </div>
+        <MoreStoriesFeed
+          key={`${feedMode}-${topCategory}`}
+          stories={moreStories}
+          usePersonalizedBadges={usePersonalizedBadges}
+        />
       </section>
     </div>
   );

@@ -1,5 +1,10 @@
 import type { WeeklyBriefingSelection } from "@/lib/briefing/weekly-selection";
 import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
+import {
+  isArticleLikeHeadline,
+  normalizeThesisHeadline,
+} from "@/lib/briefing/thesis-title";
+import type { BriefingCadence } from "@/lib/briefing/types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 const TITLE_MAX: Record<WeeklyBriefingMode, number> = {
@@ -166,19 +171,41 @@ export function deriveFallbackHeadline(
   profile: OnboardingProfile | null,
   selection?: WeeklyBriefingSelection
 ): string {
+  const cadence: BriefingCadence = selection?.cadence ?? "weekly";
+  const lens = selection?.lens ?? (cadence === "daily" ? "event" : "pattern");
+
   if (mode === "for-you" && selection && selection.threads.length > 1) {
     return deriveForYouMultiHeadline(selection, profile);
   }
   const lead = selected[0];
   if (!lead) {
-    return mode === "for-you"
-      ? "One Development To Watch This Week"
-      : "One Development Stood Out This Week";
+    return lens === "event"
+      ? "One Material Change In The Last Day"
+      : mode === "for-you"
+        ? "Several Priorities Converged This Week"
+        : "A Strategic Pattern Emerged This Week";
+  }
+
+  const clusterLabel = selection?.threads[0]?.label?.trim();
+  const thesisFallback =
+    lens === "pattern"
+      ? cadence === "weekly"
+        ? "A Strategic Pattern Emerged Across The Week"
+        : "One Development Stood Out"
+      : "One Material Change In The Last Day";
+
+  if (
+    clusterLabel &&
+    !isListLikeHeadline(clusterLabel) &&
+    !isArticleLikeHeadline(clusterLabel)
+  ) {
+    return normalizeThesisHeadline(clusterLabel, mode, cadence, thesisFallback);
   }
 
   const base = leadInsightPhrase(lead);
-  if (!isListLikeHeadline(base)) {
-    return normalizeWeeklyHeadline(base, mode, lead.headline);
+
+  if (!isListLikeHeadline(base) && !isArticleLikeHeadline(base)) {
+    return normalizeThesisHeadline(base, mode, cadence, thesisFallback);
   }
 
   if (mode === "for-you" && profile?.career) {
@@ -186,19 +213,32 @@ export function deriveFallbackHeadline(
       NonNullable<OnboardingProfile["career"]>,
       string
     > = {
-      investor: "One Market Move Worth Tracking",
-      engineer: "One Tech Shift Worth Tracking",
-      founder: "One Business Signal Worth Tracking",
-      executive: "One Operating Risk Worth Tracking",
-      researcher: "One Claim Worth Verifying",
+      investor:
+        lens === "event"
+          ? "Markets Are Reacting To A New Catalyst"
+          : "Capital Is Rotating Across Several Themes",
+      engineer:
+        lens === "event"
+          ? "A New Technical Shift Landed Today"
+          : "Build And Hire Signals Are Clustering",
+      founder:
+        lens === "event"
+          ? "A New GTM Or Funding Signal Appeared"
+          : "GTM And Funding Pressures Are Aligning",
+      executive:
+        lens === "event"
+          ? "A New Operating Risk Surfaced"
+          : "Operating Risks Are Converging",
+      researcher: "New Claims Need Verification",
     };
     return careerTitles[profile.career];
   }
 
-  return normalizeWeeklyHeadline(
+  return normalizeThesisHeadline(
     lead.headline,
     mode,
-    lead.headline
+    cadence,
+    thesisFallback
   );
 }
 
