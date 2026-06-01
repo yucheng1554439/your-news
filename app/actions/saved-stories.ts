@@ -1,40 +1,24 @@
 "use server";
 
-import { auth, clerkClient } from "@clerk/nextjs/server";
-import { mergePublicMetadata } from "@/lib/clerk/merge-public-metadata";
-import {
-  parseReadingSignalsFromMetadata,
-  recordStorySaved,
-} from "@/lib/personalization/reading-signals-metadata";
+import { auth } from "@clerk/nextjs/server";
+import { recordStorySaved } from "@/lib/personalization/reading-signals-metadata";
 import {
   MAX_SAVED_STORIES,
-  parseSavedStoriesFromMetadata,
   storyToSavedRef,
   type SavedStoryRef,
-  type SavedStoriesMetadata,
 } from "@/lib/saved-stories/metadata";
 import { getAllStoryTags } from "@/lib/intelligence/story-tags";
+import {
+  getSavedStoryRefsForUser,
+  loadUserProfile,
+  patchUserProfile,
+} from "@/lib/user-profile/store";
 import type { Story } from "@/lib/types";
-
-async function readSavedMetadata(userId: string): Promise<{
-  publicMetadata: Record<string, unknown>;
-  saved: SavedStoriesMetadata;
-}> {
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const publicMetadata = (user.publicMetadata ?? {}) as Record<string, unknown>;
-  return {
-    publicMetadata,
-    saved: parseSavedStoriesFromMetadata(publicMetadata),
-  };
-}
 
 export async function getSavedStoriesFromClerk(): Promise<SavedStoryRef[]> {
   const { userId } = await auth();
   if (!userId) return [];
-
-  const { saved } = await readSavedMetadata(userId);
-  return [...saved.items].sort((a, b) => b.savedAt - a.savedAt);
+  return getSavedStoryRefsForUser(userId);
 }
 
 export async function toggleSavedStory(
@@ -49,41 +33,55 @@ export async function toggleSavedStory(
   }
 
   try {
-    const { publicMetadata, saved } = await readSavedMetadata(userId);
-    const exists = saved.items.some((item) => item.slug === story.slug);
+    const record = await loadUserProfile(userId);
+    const exists = record.savedStories.items.some(
+      (item) => item.slug === story.slug
+    );
 
     let items: SavedStoryRef[];
     if (exists) {
-      items = saved.items.filter((item) => item.slug !== story.slug);
+      items = record.savedStories.items.filter(
+        (item) => item.slug !== story.slug
+      );
     } else {
-      items = [storyToSavedRef(story), ...saved.items].slice(0, MAX_SAVED_STORIES);
+      items = [storyToSavedRef(story), ...record.savedStories.items].slice(
+        0,
+        MAX_SAVED_STORIES
+      );
     }
 
-    const savedStories: SavedStoriesMetadata = {
-      items,
-      updatedAt: Date.now(),
-    };
-
-    let nextMeta = mergePublicMetadata(publicMetadata, { savedStories });
+    const savedStories = { items, updatedAt: Date.now() };
+    let readingSignals = record.readingSignals;
 
     if (!exists) {
-      const reading = parseReadingSignalsFromMetadata(publicMetadata);
-      nextMeta = mergePublicMetadata(nextMeta, {
-        readingSignals: recordStorySaved(
-          reading,
-          getAllStoryTags(story),
-          story.primaryCategory ?? story.category
-        ),
-      });
+      readingSignals = recordStorySaved(
+        readingSignals,
+        getAllStoryTags(story),
+        story.primaryCategory ?? story.category
+      );
     }
 
-    const client = await clerkClient();
-    await client.users.updateUserMetadata(userId, {
-      publicMetadata: nextMeta,
+    const result = await patchUserProfile(userId, {
+      savedStories,
+      readingSignals,
     });
 
-    return { ok: true, saved: !exists, items };
-  } catch {
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+
+    return {
+      ok: true,
+      saved: !exists,
+      items: [...result.record.savedStories.items].sort(
+        (a, b) => b.savedAt - a.savedAt
+      ),
+    };
+  } catch (err) {
+    console.error(
+      "[USER_PROFILE] toggle_saved_failed",
+      err instanceof Error ? err.message : err
+    );
     return { ok: false, error: "Could not update saved stories" };
   }
 }

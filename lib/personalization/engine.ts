@@ -22,6 +22,7 @@ import {
 import { computeSemanticRelevance } from "@/lib/personalization/relevance";
 import { getStrategicSignal, isLowSignalStory, isNoiseStory } from "@/lib/signal/strategic-score";
 import type { ReadingSignalsMetadata } from "@/lib/personalization/reading-signals-metadata";
+import { isHardTopicExcluded } from "@/lib/personalization/topic-preferences";
 import type { UserIntelligenceProfile } from "@/lib/personalization/user-intelligence-types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
@@ -108,6 +109,7 @@ export function rankStoriesForUser(
 
   const rankable = stories.filter((s) => {
     if (isNoiseStory(s)) return false;
+    if (isHardTopicExcluded(s, profile, intelligence)) return false;
     if (getStrategicSignal(s) < 0.28) return false;
     if (isLowSignalStory(s) && getStrategicSignal(s) < 0.38) return false;
 

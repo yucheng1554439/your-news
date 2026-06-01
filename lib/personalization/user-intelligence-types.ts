@@ -58,4 +58,8 @@ export type UserIntelligenceProfile = {
   sessionCount: number;
   /** Slugs flagged off-profile by AI intelligence */
   aiIrrelevantSlugs?: Record<string, number>;
+  /** Explicit user topic controls (from onboarding profile). */
+  topicPreferencesMore?: string[];
+  topicPreferencesLess?: string[];
+  topicPreferencesNever?: string[];
 };

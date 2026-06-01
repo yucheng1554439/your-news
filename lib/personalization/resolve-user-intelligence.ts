@@ -1,6 +1,7 @@
 import "server-only";
 
 import { buildUserIntelligenceProfile } from "@/lib/personalization/intelligence-profile";
+import { mergeTopicPreferencesIntoIntelligence } from "@/lib/personalization/topic-preferences";
 import type { UserIntelligenceProfile } from "@/lib/personalization/user-intelligence-types";
 import type { ReadingSignalsMetadata } from "@/lib/personalization/reading-signals-metadata";
 import type { SavedStoryRef } from "@/lib/saved-stories/metadata";
@@ -16,11 +17,14 @@ export type UserIntelligenceInput = {
 export function buildUserIntelligenceFromInput(
   input: UserIntelligenceInput
 ): UserIntelligenceProfile {
-  return buildUserIntelligenceProfile(
+  return mergeTopicPreferencesIntoIntelligence(
     input.profile,
-    input.savedRefs,
-    input.reading,
-    input.pool
+    buildUserIntelligenceProfile(
+      input.profile,
+      input.savedRefs,
+      input.reading,
+      input.pool
+    )
   );
 }
 
@@ -31,5 +35,8 @@ export function buildUserIntelligenceOrNull(
   pool: Story[]
 ): UserIntelligenceProfile | null {
   if (!profile?.completed) return null;
-  return buildUserIntelligenceProfile(profile, savedRefs, reading, pool);
+  return mergeTopicPreferencesIntoIntelligence(
+    profile,
+    buildUserIntelligenceProfile(profile, savedRefs, reading, pool)
+  );
 }

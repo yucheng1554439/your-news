@@ -4,6 +4,7 @@ import {
   passesFeedStrategicGate,
 } from "@/lib/ranking/strategic-relevance";
 import { isNoiseStory } from "@/lib/signal/strategic-score";
+import { isHardTopicExcluded } from "@/lib/personalization/topic-preferences";
 import type { UserIntelligenceProfile } from "@/lib/personalization/user-intelligence-types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
@@ -27,11 +28,13 @@ export function selectMoreStoriesForFeed(
       story,
       breakdown: computeStrategicRelevance(story, profile, intelligence),
     }))
-    .filter(({ breakdown }) =>
-      personalized
-        ? passesFeedStrategicGate(breakdown)
-        : !breakdown.aiDemoted &&
-          !(breakdown.lowValueContent && breakdown.composite < 0.28)
+    .filter(
+      ({ story, breakdown }) =>
+        !isHardTopicExcluded(story, profile, intelligence) &&
+        (personalized
+          ? passesFeedStrategicGate(breakdown)
+          : !breakdown.aiDemoted &&
+            !(breakdown.lowValueContent && breakdown.composite < 0.28))
     )
     .sort((a, b) => compareStrategicRelevance(a.breakdown, b.breakdown))
     .map(({ story }) => story);

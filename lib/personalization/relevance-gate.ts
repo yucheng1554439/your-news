@@ -11,6 +11,11 @@ import {
   computeWeightedPersonalization,
   type WeightedPersonalization,
 } from "@/lib/personalization/signal-blend";
+import {
+  isHardTopicExcluded,
+  shouldOverrideTopicExclusion,
+  topicPreferenceAdjustments,
+} from "@/lib/personalization/topic-preferences";
 import type { UserIntelligenceProfile } from "@/lib/personalization/user-intelligence-types";
 import {
   getStrategicSignal,
@@ -103,12 +108,19 @@ export function assessStoryRelevance(
 
   const strategic = getStrategicSignal(story);
   const profileScore = computeSemanticRelevance(story, profile) / 10;
-  const behavioral = normalizeBehavior(story, profile, intelligence);
   const personalization =
     options.personalization ??
     computeWeightedPersonalization(story, profile, intelligence);
   const savedAffinity = personalization.channels.saved;
   const blob = storyBlob(story);
+  const topicAdj = topicPreferenceAdjustments(story, profile);
+
+  let behavioral = normalizeBehavior(story, profile, intelligence);
+  if (topicAdj.hardExcluded) {
+    behavioral = 0;
+  } else if (topicAdj.penalty > 0) {
+    behavioral *= 0.35;
+  }
 
   let composite =
     savedAffinity * 0.4 +
@@ -161,13 +173,32 @@ export function assessStoryRelevance(
     composite * 0.55 + strategicBreakdown.composite * 0.45
   );
 
-  const passesFeed =
+  composite = Math.min(
+    1,
+    Math.max(0, composite + topicAdj.boost - topicAdj.penalty)
+  );
+
+  const topicOverride = shouldOverrideTopicExclusion(
+    story,
+    profile,
+    intelligence
+  );
+  const topicBlocked =
+    topicAdj.hardExcluded && !topicOverride && !isSaved;
+
+  if (topicAdj.boost > 0) reasons.push("topic interest boost");
+  if (topicAdj.penalty > 0) reasons.push("topic less-interested penalty");
+  if (topicBlocked) reasons.push("topic never-show exclusion");
+
+  let passesFeed =
+    !topicBlocked &&
     (composite >= RELEVANCE_THRESHOLDS.feed ||
       strategicBreakdown.strategicSignificance >=
         RELEVANCE_THRESHOLDS.strategicBypass) &&
     passesFeedStrategicGate(strategicBreakdown);
 
-  const passesRelevantToYou =
+  let passesRelevantToYou =
+    !topicBlocked &&
     !aiDeclaresIrrelevant &&
     !priorIrrelevant &&
     passesRelevantToYouStrategicGate(strategicBreakdown) &&
@@ -270,7 +301,8 @@ export function selectRelevantStoriesForUser(
       assessment: assessStoryRelevance(story, profile, intelligence, options),
     }))
     .filter(
-      ({ assessment, breakdown }) =>
+      ({ story, assessment, breakdown }) =>
+        !isHardTopicExcluded(story, profile, intelligence) &&
         assessment.passesRelevantToYou &&
         passesRelevantToYouStrategicGate(breakdown)
     )
@@ -295,7 +327,11 @@ export function selectTopStoriesForUser(
       story,
       breakdown: computeStrategicRelevance(story, profile, intelligence),
     }))
-    .filter(({ breakdown }) => passesTopStoriesGate(breakdown))
+    .filter(
+      ({ story, breakdown }) =>
+        !isHardTopicExcluded(story, profile, intelligence) &&
+        passesTopStoriesGate(breakdown)
+    )
     .sort((a, b) => b.breakdown.composite - a.breakdown.composite)
     .slice(0, limit)
     .map(({ story }) => story);

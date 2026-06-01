@@ -76,8 +76,6 @@ const SENSITIVE_THEME_IDS = new Set([
   "humanitarian-social",
 ]);
 
-const LOW_ENGAGEMENT_CATEGORIES = new Set(["sports", "entertainment", "gaming"]);
-
 const MIN_CONFIDENCE_BEHAVIOR_IDENTITY = 0.42;
 const MIN_CONFIDENCE_EMERGING = 0.38;
 
@@ -553,13 +551,6 @@ export function buildUserIntelligenceProfile(
       ignoredCategories.push(topStoryCategoryLabel(cat));
     }
   }
-  for (const cat of LOW_ENGAGEMENT_CATEGORIES) {
-    const clicks = reading.categoryClicks[cat] ?? 0;
-    const opensInCat = reading.opens.filter((o) => o.category === cat).length;
-    if (clicks >= 1 && opensInCat === 0 && !behavioralTopCats.has(cat)) {
-      ignoredCategories.push(topStoryCategoryLabel(cat));
-    }
-  }
 
   const ignoredThemes: string[] = [];
   for (const [slug, count] of Object.entries(aiIrrelevant)) {
@@ -669,9 +660,18 @@ export function formatIntelligenceProfileForPrompt(
   if (uip.emergingInterests.length > 0) {
     lines.push(`- Emerging (watch): ${uip.emergingInterests.join(", ")}`);
   }
+  if (uip.topicPreferencesMore && uip.topicPreferencesMore.length > 0) {
+    lines.push(`- Topics I want more of: ${uip.topicPreferencesMore.join(", ")}`);
+  }
+  if (uip.topicPreferencesLess && uip.topicPreferencesLess.length > 0) {
+    lines.push(`- Topics I want less of: ${uip.topicPreferencesLess.join(", ")}`);
+  }
+  if (uip.topicPreferencesNever && uip.topicPreferencesNever.length > 0) {
+    lines.push(`- Never show me: ${uip.topicPreferencesNever.join(", ")}`);
+  }
   if (uip.ignoredThemes.length > 0 || uip.ignoredCategories.length > 0) {
     lines.push(
-      `- Deprioritized: ${[...uip.ignoredThemes, ...uip.ignoredCategories].join(", ")}`
+      `- Inferred from behavior (soft): ${[...uip.ignoredThemes, ...uip.ignoredCategories].join(", ")}`
     );
   }
 

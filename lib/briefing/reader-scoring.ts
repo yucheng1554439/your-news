@@ -7,6 +7,12 @@ import {
   tagDisplayLabel,
 } from "@/lib/personalization/tag-labels";
 import type { UserIntelligenceProfile } from "@/lib/personalization/user-intelligence-types";
+import {
+  getTopicPreferences,
+  matchingTopicIds,
+  topicPreferenceAdjustments,
+} from "@/lib/personalization/topic-preferences";
+
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 /** Rank boost from user intelligence profile (behavior > static interests). */
@@ -76,27 +82,43 @@ export function scoreStoryForReader(
   score += scoreSavedChannel(story, intelligence) * 10 * w;
   if (intelligence.openedSlugs.includes(story.slug)) score += 1.5 * w;
 
-  for (const ignored of intelligence.ignoredThemes) {
-    const needle = ignored.toLowerCase();
-    if (
-      story.tags.some((t) => tagDisplayLabel(t).toLowerCase().includes(needle)) ||
-      theme === ignored
-    ) {
-      score -= 4 * w;
+  if (profile) {
+    const topicAdj = topicPreferenceAdjustments(story, profile);
+    if (topicAdj.hardExcluded) {
+      return score - 20 * w;
+    }
+    if (topicAdj.boost > 0) score += 4 * w;
+    if (topicAdj.penalty > 0) score -= 5 * w;
+  }
+
+  const userWantsMore =
+    profile != null &&
+    matchingTopicIds(story, getTopicPreferences(profile).moreOf).length > 0;
+
+  if (!userWantsMore) {
+    for (const ignored of intelligence.ignoredThemes) {
+      const needle = ignored.toLowerCase();
+      if (
+        story.tags.some((t) =>
+          tagDisplayLabel(t).toLowerCase().includes(needle)
+        ) ||
+        theme === ignored
+      ) {
+        score -= 4 * w;
+      }
+    }
+
+    for (const ignored of intelligence.ignoredCategories) {
+      if (
+        story.category === ignored.toLowerCase() ||
+        categoryDisplayLabel(story.category)
+          .toLowerCase()
+          .includes(ignored.toLowerCase())
+      ) {
+        score -= 3.5 * w;
+      }
     }
   }
 
-  for (const ignored of intelligence.ignoredCategories) {
-    if (
-      story.category === ignored.toLowerCase() ||
-      categoryDisplayLabel(story.category)
-        .toLowerCase()
-        .includes(ignored.toLowerCase())
-    ) {
-      score -= 3.5 * w;
-    }
-  }
-
-  void profile;
   return score;
 }

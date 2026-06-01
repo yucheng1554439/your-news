@@ -12,6 +12,7 @@ export const defaultProfile: OnboardingProfile = {
   tone: null,
   completed: false,
   updatedAt: 0,
+  topicPreferences: { moreOf: [], lessOf: [], neverShow: [] },
 };
 
 function storageKey(userId: string | null): string {
@@ -46,7 +47,8 @@ export function hydrateOnboardingProfile(
 /** Persists locally and to Clerk; returns when Clerk save finishes. */
 export async function saveOnboardingProfileAsync(
   partial: Partial<OnboardingProfile>,
-  userId?: string | null
+  userId?: string | null,
+  options?: { skipClerk?: boolean }
 ): Promise<OnboardingProfile> {
   const current = getOnboardingProfile(userId);
   const updated: OnboardingProfile = {
@@ -59,7 +61,7 @@ export async function saveOnboardingProfileAsync(
     localStorage.setItem(storageKey(userId ?? null), JSON.stringify(updated));
   }
 
-  if (userId) {
+  if (userId && !options?.skipClerk) {
     const clerkResult = await saveOnboardingToClerk(updated);
     if (!clerkResult.ok) {
       throw new Error(clerkResult.error);

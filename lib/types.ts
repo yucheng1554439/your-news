@@ -148,6 +148,12 @@ export type FocusType = "breadth" | "depth" | "breaking";
 
 export type Tone = "analytical" | "concise" | "narrative";
 
+export type TopicPreferences = {
+  moreOf: string[];
+  lessOf: string[];
+  neverShow: string[];
+};
+
 export interface OnboardingProfile {
   interests: string[];
   career: Career | null;
@@ -156,4 +162,6 @@ export interface OnboardingProfile {
   completed: boolean;
   /** Unix ms — used to reconcile local vs Clerk copies. */
   updatedAt?: number;
+  /** Explicit topic controls — override inferred behavioral deprioritization. */
+  topicPreferences?: TopicPreferences;
 }

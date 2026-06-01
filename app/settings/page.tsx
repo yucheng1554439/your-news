@@ -1,11 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { Navbar } from "@/components/Navbar";
 import { UserIntelligenceCard } from "@/components/UserIntelligenceCard";
 import { Button } from "@/components/ui/button";
 import { getOnboardingProfile, resetOnboarding } from "@/lib/onboarding";
+import { getTopicPreferencesAction } from "@/app/actions/user-profile";
+import { topicPreferenceLabel } from "@/lib/personalization/topic-options";
 import { useOnboardingSync } from "@/hooks/use-onboarding-sync";
 
 const careerLabels: Record<string, string> = {
@@ -20,6 +23,25 @@ function SettingsContent({ userId }: { userId: string }) {
   const router = useRouter();
   const { user } = useUser();
   const profile = getOnboardingProfile(userId);
+  const [topicPrefs, setTopicPrefs] = useState({
+    moreOf: [] as string[],
+    lessOf: [] as string[],
+    neverShow: [] as string[],
+  });
+
+  useEffect(() => {
+    void getTopicPreferencesAction().then((remote) => {
+      if (!remote) return;
+      setTopicPrefs({
+        moreOf: remote.moreOf.map(topicPreferenceLabel),
+        lessOf: remote.lessOf.map(topicPreferenceLabel),
+        neverShow: remote.neverShow.map(topicPreferenceLabel),
+      });
+    });
+  }, [userId]);
+
+  const formatTopicList = (items: string[]) =>
+    items.length > 0 ? items.join(", ") : "None";
 
   const handleReset = async () => {
     resetOnboarding(userId);
@@ -78,14 +100,41 @@ function SettingsContent({ userId }: { userId: string }) {
               {profile.tone ?? "Not set"}
             </dd>
           </div>
+          <div>
+            <dt className="text-zinc-500">Topics I want more of</dt>
+            <dd className="mt-1 text-zinc-200">
+              {formatTopicList(topicPrefs.moreOf)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Topics I want less of</dt>
+            <dd className="mt-1 text-zinc-200">
+              {formatTopicList(topicPrefs.lessOf)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Never show me</dt>
+            <dd className="mt-1 text-zinc-200">
+              {formatTopicList(topicPrefs.neverShow)}
+            </dd>
+          </div>
         </dl>
-        <Button
-          variant="outline"
-          className="mt-6 rounded-full border-white/10 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-white"
-          onClick={() => router.push("/settings/personalize/interests")}
-        >
-          Edit personalization
-        </Button>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            className="rounded-full border-white/10 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-white"
+            onClick={() => router.push("/settings/personalize/interests")}
+          >
+            Edit interests & career
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-full border-white/10 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-white"
+            onClick={() => router.push("/settings/personalize/topics")}
+          >
+            Edit topic preferences
+          </Button>
+        </div>
       </div>
 
       <UserIntelligenceCard />

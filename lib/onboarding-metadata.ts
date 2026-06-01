@@ -1,5 +1,9 @@
 import type { OnboardingProfile } from "@/lib/types";
 import { defaultProfile } from "@/lib/onboarding";
+import {
+  DEFAULT_TOPIC_PREFERENCES,
+  normalizeTopicPreferences,
+} from "@/lib/personalization/topic-preferences";
 
 export const ONBOARDING_METADATA_KEY = "onboarding";
 
@@ -22,6 +26,10 @@ export function parseOnboardingFromMetadata(
     completed: Boolean(raw.completed),
     updatedAt:
       typeof raw.updatedAt === "number" ? raw.updatedAt : undefined,
+    /** Legacy Clerk field — migrated to KV; prefer user profile store. */
+    topicPreferences: normalizeTopicPreferences(
+      (raw as OnboardingProfile).topicPreferences ?? DEFAULT_TOPIC_PREFERENCES
+    ),
   };
 }
 

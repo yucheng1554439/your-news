@@ -1,10 +1,8 @@
 "use server";
 
-import { auth, clerkClient } from "@clerk/nextjs/server";
-import { mergePublicMetadata } from "@/lib/clerk/merge-public-metadata";
+import { auth } from "@clerk/nextjs/server";
 import {
   emptyReadingSignals,
-  parseReadingSignalsFromMetadata,
   recordAiIrrelevantStory,
   recordCategoryClick,
   recordCategoryIgnore,
@@ -13,38 +11,25 @@ import {
   recordStoryOpen,
   type ReadingSignalsMetadata,
 } from "@/lib/personalization/reading-signals-metadata";
+import {
+  getReadingSignalsForUser,
+  loadUserProfile,
+  patchUserProfile,
+} from "@/lib/user-profile/store";
 import type { Story } from "@/lib/types";
-
-async function readReadingMetadata(userId: string): Promise<{
-  publicMetadata: Record<string, unknown>;
-  reading: ReadingSignalsMetadata;
-}> {
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const publicMetadata = (user.publicMetadata ?? {}) as Record<string, unknown>;
-  return {
-    publicMetadata,
-    reading: parseReadingSignalsFromMetadata(publicMetadata),
-  };
-}
-
-async function persistReading(
-  userId: string,
-  publicMetadata: Record<string, unknown>,
-  reading: ReadingSignalsMetadata
-): Promise<void> {
-  const client = await clerkClient();
-  await client.users.updateUserMetadata(userId, {
-    publicMetadata: mergePublicMetadata(publicMetadata, { readingSignals: reading }),
-  });
-}
 
 export async function getReadingSignalsFromClerk(): Promise<ReadingSignalsMetadata> {
   const { userId } = await auth();
   if (!userId) return emptyReadingSignals();
+  return getReadingSignalsForUser(userId);
+}
 
-  const { reading } = await readReadingMetadata(userId);
-  return reading;
+async function persistReadingSignals(
+  userId: string,
+  reading: ReadingSignalsMetadata
+): Promise<boolean> {
+  const result = await patchUserProfile(userId, { readingSignals: reading });
+  return result.ok;
 }
 
 export async function recordStoryOpenForUser(
@@ -54,14 +39,13 @@ export async function recordStoryOpenForUser(
   if (!userId) return { ok: false };
 
   try {
-    const { publicMetadata, reading } = await readReadingMetadata(userId);
-    const next = recordStoryOpen(reading, {
+    const record = await loadUserProfile(userId);
+    const next = recordStoryOpen(record.readingSignals, {
       slug: story.slug,
       category: story.category,
       tags: story.tags,
     });
-    await persistReading(userId, publicMetadata, next);
-    return { ok: true };
+    return { ok: await persistReadingSignals(userId, next) };
   } catch {
     return { ok: false };
   }
@@ -75,10 +59,9 @@ export async function recordStoryDwellForUser(
   if (!userId || dwellMs < 3000) return { ok: false };
 
   try {
-    const { publicMetadata, reading } = await readReadingMetadata(userId);
-    const next = recordStoryDwell(reading, slug, dwellMs);
-    await persistReading(userId, publicMetadata, next);
-    return { ok: true };
+    const record = await loadUserProfile(userId);
+    const next = recordStoryDwell(record.readingSignals, slug, dwellMs);
+    return { ok: await persistReadingSignals(userId, next) };
   } catch {
     return { ok: false };
   }
@@ -91,10 +74,9 @@ export async function recordCategoryClickForUser(
   if (!userId) return { ok: false };
 
   try {
-    const { publicMetadata, reading } = await readReadingMetadata(userId);
-    const next = recordCategoryClick(reading, category);
-    await persistReading(userId, publicMetadata, next);
-    return { ok: true };
+    const record = await loadUserProfile(userId);
+    const next = recordCategoryClick(record.readingSignals, category);
+    return { ok: await persistReadingSignals(userId, next) };
   } catch {
     return { ok: false };
   }
@@ -107,10 +89,9 @@ export async function recordCategoryIgnoreForUser(
   if (!userId) return { ok: false };
 
   try {
-    const { publicMetadata, reading } = await readReadingMetadata(userId);
-    const next = recordCategoryIgnore(reading, category);
-    await persistReading(userId, publicMetadata, next);
-    return { ok: true };
+    const record = await loadUserProfile(userId);
+    const next = recordCategoryIgnore(record.readingSignals, category);
+    return { ok: await persistReadingSignals(userId, next) };
   } catch {
     return { ok: false };
   }
@@ -121,9 +102,9 @@ export async function recordIntelligenceRefreshForUser(): Promise<void> {
   if (!userId) return;
 
   try {
-    const { publicMetadata, reading } = await readReadingMetadata(userId);
-    const next = recordIntelligenceRefresh(reading);
-    await persistReading(userId, publicMetadata, next);
+    const record = await loadUserProfile(userId);
+    const next = recordIntelligenceRefresh(record.readingSignals);
+    await persistReadingSignals(userId, next);
   } catch {
     /* non-blocking */
   }
@@ -136,10 +117,9 @@ export async function recordAiIrrelevantForUser(
   if (!userId) return { ok: false };
 
   try {
-    const { publicMetadata, reading } = await readReadingMetadata(userId);
-    const next = recordAiIrrelevantStory(reading, slug);
-    await persistReading(userId, publicMetadata, next);
-    return { ok: true };
+    const record = await loadUserProfile(userId);
+    const next = recordAiIrrelevantStory(record.readingSignals, slug);
+    return { ok: await persistReadingSignals(userId, next) };
   } catch {
     return { ok: false };
   }

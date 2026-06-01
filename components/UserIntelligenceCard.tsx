@@ -45,7 +45,7 @@ export function UserIntelligenceCard() {
         <p className="mt-2 text-xs text-zinc-500">
           Career and interests are your stable identity. Behavior confidence{" "}
           {conf}% — recent reading adjusts ranking but does not replace who you
-          are after a few clicks.
+          are or override your topic preferences.
         </p>
       </div>
 
@@ -82,14 +82,50 @@ export function UserIntelligenceCard() {
         </div>
       )}
 
+      {(profile.topicPreferencesMore?.length ?? 0) > 0 && (
+        <div>
+          <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Topics I want more of
+          </h3>
+          <p className="mt-1 text-sm text-emerald-200/90">
+            {profile.topicPreferencesMore!.join(" · ")}
+          </p>
+        </div>
+      )}
+
+      {(profile.topicPreferencesLess?.length ?? 0) > 0 && (
+        <div>
+          <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Topics I want less of
+          </h3>
+          <p className="mt-1 text-sm text-amber-200/90">
+            {profile.topicPreferencesLess!.join(" · ")}
+          </p>
+        </div>
+      )}
+
+      {(profile.topicPreferencesNever?.length ?? 0) > 0 && (
+        <div>
+          <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Never show me
+          </h3>
+          <p className="mt-1 text-sm text-red-200/90">
+            {profile.topicPreferencesNever!.join(" · ")}
+          </p>
+        </div>
+      )}
+
       {(profile.ignoredThemes.length > 0 ||
         profile.ignoredCategories.length > 0) && (
         <div>
           <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-            Deprioritized
+            Inferred from behavior
           </h3>
           <p className="mt-1 text-sm text-zinc-400">
             {[...profile.ignoredThemes, ...profile.ignoredCategories].join(" · ")}
+          </p>
+          <p className="mt-1 text-xs text-zinc-600">
+            Soft signal only — your explicit topic settings above take priority.
           </p>
         </div>
       )}
