@@ -8,7 +8,7 @@ import type {
   CadenceBriefings,
   IntelligenceBriefing,
 } from "@/lib/briefing/types";
-import { normalizeBriefing } from "@/lib/briefing/types";
+import { normalizeBriefing } from "@/lib/briefing/shared/normalize";
 import { PERSIST_KEYS } from "@/lib/persistence/keys";
 import {
   readIntelligenceMeta,
@@ -122,7 +122,10 @@ export async function writePlatformIntelligenceSnapshot(
   });
 
   console.log(
-    `[PERSIST] Intelligence snapshot saved (${result.backend}) — briefings + ${Object.keys(payload.enrichedBySlug).length} stories`
+    `[PERSIST] Intelligence snapshot saved (${result.backend}) — global briefings + ${Object.keys(payload.enrichedBySlug).length} stories`
+  );
+  console.log(
+    `[SNAPSHOT_SCOPE] global key=${PERSIST_KEYS.intelligenceSnapshot}`
   );
   console.log("[WEEKLY] snapshot write succeeded");
   return true;

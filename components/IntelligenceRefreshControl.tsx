@@ -14,12 +14,16 @@ interface IntelligenceRefreshControlProps {
   className?: string;
 }
 
-function formatTimestamp(ms: number | null): string {
+export function formatIntelligenceTimestamp(ms: number | null): string {
   if (!ms) return "Not generated yet";
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(ms));
+}
+
+function formatTimestamp(ms: number | null): string {
+  return formatIntelligenceTimestamp(ms);
 }
 
 export function IntelligenceRefreshControl({

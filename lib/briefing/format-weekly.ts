@@ -1,8 +1,24 @@
 import type { WeeklyBriefingSelection } from "@/lib/briefing/weekly-selection";
 import type { WeeklyBriefingMode } from "@/lib/briefing/weekly-engine";
 import {
+  buildThematicForYouHeadline,
+  humanizeClusterLabel,
+  isForbiddenGenericForYouTitle,
+} from "@/lib/briefing/shared/for-you-corpus-signals";
+
+export function deriveThematicForYouHeadline(
+  selection: WeeklyBriefingSelection
+): string {
+  return normalizeWeeklyHeadline(
+    buildThematicForYouHeadline(selection),
+    "for-you"
+  );
+}
+import {
   isArticleLikeHeadline,
+  hasDuplicatedHeadlinePhrase,
   normalizeThesisHeadline,
+  rejectDuplicateHeadline,
 } from "@/lib/briefing/thesis-title";
 import type { BriefingCadence } from "@/lib/briefing/types";
 import type { OnboardingProfile, Story } from "@/lib/types";
@@ -66,6 +82,8 @@ export function normalizeWeeklyHeadline(
     headline = headline.replace(/^(this week,?|weekly:?)\s*/i, "");
   }
 
+  headline = rejectDuplicateHeadline(headline, fallbackSource?.trim() ?? headline);
+
   return headline;
 }
 
@@ -73,6 +91,23 @@ function limitSentences(text: string, maxSentences: number): string {
   const sentences = text.match(/[^.!?]+[.!?]+/g);
   if (!sentences || sentences.length <= maxSentences) return text.trim();
   return sentences.slice(0, maxSentences).join(" ").trim();
+}
+
+/** Preserve thematic paragraph structure for global synthesis (no 3-sentence crush). */
+export function formatGlobalStructuredOverview(text: string): string {
+  let summary = text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
+  summary = summary.replace(/\.\.\.+$/g, ".").replace(/…$/g, "");
+  const maxChars = 1400;
+  if (summary.length <= maxChars) return summary;
+
+  const blocks = summary.split(/\n\n+/);
+  let out = "";
+  for (const block of blocks) {
+    const next = out ? `${out}\n\n${block}` : block;
+    if (next.length > maxChars) break;
+    out = next;
+  }
+  return out || summary.slice(0, maxChars).trim();
 }
 
 export function normalizeWeeklySummary(
@@ -137,32 +172,60 @@ function leadInsightPhrase(story: Story): string {
   return compressToTitle(first, TITLE_MAX.global);
 }
 
+function uniqueThreadLabels(labels: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const label of labels) {
+    const key = label.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(label.trim());
+  }
+  return out;
+}
+
 function deriveForYouMultiHeadline(
   selection: WeeklyBriefingSelection,
-  profile: OnboardingProfile | null
+  _profile: OnboardingProfile | null
 ): string {
-  const labels = selection.threads
-    .slice(0, 3)
-    .map((t) => t.label.split("&")[0]?.trim() ?? t.label)
-    .filter(Boolean);
+  return deriveThematicForYouHeadline(selection);
+}
+
+function deriveGlobalMultiHeadline(selection: WeeklyBriefingSelection): string {
+  const labels = uniqueThreadLabels(
+    selection.threads
+      .slice(0, 3)
+      .map((t) => t.label.split("&")[0]?.trim() ?? t.label)
+      .filter(Boolean)
+  );
 
   if (labels.length >= 2) {
     const combined = labels.slice(0, 2).join(" And ");
-    return normalizeWeeklyHeadline(combined, "for-you");
+    const normalized = normalizeWeeklyHeadline(combined, "global");
+    if (!hasDuplicatedHeadlinePhrase(normalized)) {
+      return normalized;
+    }
   }
 
-  if (profile?.career) {
-    const titles: Record<NonNullable<OnboardingProfile["career"]>, string> = {
-      investor: "Several Portfolio Pressures This Week",
-      engineer: "Several Build-And-Hire Signals This Week",
-      founder: "Several GTM And Funding Pressures This Week",
-      executive: "Several Operating Risks This Week",
-      researcher: "Several Claims Need Your Review",
-    };
-    return titles[profile.career];
-  }
+  return "Several Strategic Themes Converged";
+}
 
-  return "Several Priorities For You This Week";
+function deriveGlobalMultiSummary(selection: WeeklyBriefingSelection): string {
+  const threads = selection.threads.slice(0, 5);
+  const blocks = threads.map((thread, idx) => {
+    const lead = thread.stories[0];
+    const fact = lead
+      ? (lead.articleBody ?? lead.rawExcerpt ?? lead.summary)
+          .split(/[.!?]/)[0]
+          ?.trim()
+      : thread.label;
+    const src = new Set(thread.stories.map((s) => s.source)).size;
+    return `Theme ${idx + 1}: ${thread.label}\n${fact} (${thread.stories.length} articles, ${src} sources)`;
+  });
+
+  return formatGlobalStructuredOverview(
+    `What happened: ${threads.length} narrative themes shaped the period.\n\n${blocks.join("\n\n")}\n\nThese threads may reinforce or tension each other — watch which gain tier-1 follow-up first.`
+  );
 }
 
 export function deriveFallbackHeadline(
@@ -177,29 +240,42 @@ export function deriveFallbackHeadline(
   if (mode === "for-you" && selection && selection.threads.length > 1) {
     return deriveForYouMultiHeadline(selection, profile);
   }
+  if (mode === "global" && selection && selection.threads.length > 1) {
+    return deriveGlobalMultiHeadline(selection);
+  }
   const lead = selected[0];
   if (!lead) {
+    if (mode === "for-you" && selection) {
+      return deriveThematicForYouHeadline(selection);
+    }
     return lens === "event"
       ? "One Material Change In The Last Day"
-      : mode === "for-you"
-        ? "Several Priorities Converged This Week"
-        : "A Strategic Pattern Emerged This Week";
+      : "A Strategic Pattern Emerged This Week";
   }
 
   const clusterLabel = selection?.threads[0]?.label?.trim();
   const thesisFallback =
-    lens === "pattern"
-      ? cadence === "weekly"
-        ? "A Strategic Pattern Emerged Across The Week"
-        : "One Development Stood Out"
-      : "One Material Change In The Last Day";
+    mode === "for-you" && selection
+      ? deriveThematicForYouHeadline(selection)
+      : lens === "pattern"
+        ? cadence === "weekly"
+          ? "A Strategic Pattern Emerged Across The Week"
+          : "One Development Stood Out"
+        : "One Material Change In The Last Day";
 
   if (
     clusterLabel &&
     !isListLikeHeadline(clusterLabel) &&
-    !isArticleLikeHeadline(clusterLabel)
+    !isArticleLikeHeadline(clusterLabel) &&
+    !hasDuplicatedHeadlinePhrase(clusterLabel)
   ) {
-    return normalizeThesisHeadline(clusterLabel, mode, cadence, thesisFallback);
+    const normalized = normalizeThesisHeadline(
+      clusterLabel,
+      mode,
+      cadence,
+      thesisFallback
+    );
+    return rejectDuplicateHeadline(normalized, thesisFallback);
   }
 
   const base = leadInsightPhrase(lead);
@@ -208,30 +284,9 @@ export function deriveFallbackHeadline(
     return normalizeThesisHeadline(base, mode, cadence, thesisFallback);
   }
 
-  if (mode === "for-you" && profile?.career) {
-    const careerTitles: Record<
-      NonNullable<OnboardingProfile["career"]>,
-      string
-    > = {
-      investor:
-        lens === "event"
-          ? "Markets Are Reacting To A New Catalyst"
-          : "Capital Is Rotating Across Several Themes",
-      engineer:
-        lens === "event"
-          ? "A New Technical Shift Landed Today"
-          : "Build And Hire Signals Are Clustering",
-      founder:
-        lens === "event"
-          ? "A New GTM Or Funding Signal Appeared"
-          : "GTM And Funding Pressures Are Aligning",
-      executive:
-        lens === "event"
-          ? "A New Operating Risk Surfaced"
-          : "Operating Risks Are Converging",
-      researcher: "New Claims Need Verification",
-    };
-    return careerTitles[profile.career];
+  if (mode === "for-you" && selection) {
+    const thematic = deriveThematicForYouHeadline(selection);
+    if (!isForbiddenGenericForYouTitle(thematic)) return thematic;
   }
 
   return normalizeThesisHeadline(
@@ -246,19 +301,28 @@ function deriveForYouMultiSummary(
   selection: WeeklyBriefingSelection,
   profile: OnboardingProfile | null
 ): string {
-  const parts = selection.threads.slice(0, 4).map((thread) => {
+  const threads = [...selection.threads]
+    .sort((a, b) => b.personalScore - a.personalScore)
+    .slice(0, 4);
+  const parts = threads.map((thread) => {
     const lead = thread.stories[0];
+    const topic = humanizeClusterLabel(thread.label);
     const fact = lead
       ? (lead.articleBody ?? lead.rawExcerpt ?? lead.summary)
           .split(/[.!?]/)[0]
           ?.trim()
-      : thread.label;
-    return `${thread.label}: ${fact} — may affect your ${profile?.career ?? "priorities"} if it holds.`;
+      : topic;
+    return `${topic}: ${fact}`;
   });
 
-  const watch =
-    "Watch which thread gets confirming data first — that is likely where you should act.";
-  return normalizeWeeklySummary(`${parts.join(" ")} ${watch}`, "for-you");
+  const focus =
+    profile?.interests?.slice(0, 3).join(", ") ??
+    profile?.career ??
+    "your priorities";
+  return normalizeWeeklySummary(
+    `What happened: ${threads.length} storylines relevant to ${focus} moved in parallel. ${parts.join(" ")} See Impact for how they connect to your priorities; Watch lists the next confirmations to track.`,
+    "for-you"
+  );
 }
 
 export function deriveFallbackSummary(
@@ -269,6 +333,9 @@ export function deriveFallbackSummary(
 ): string {
   if (mode === "for-you" && selection && selection.threads.length > 1) {
     return deriveForYouMultiSummary(selection, profile);
+  }
+  if (mode === "global" && selection && selection.threads.length > 1) {
+    return deriveGlobalMultiSummary(selection);
   }
 
   const lead = selected[0];

@@ -8,7 +8,8 @@ import {
   verifyIntelligenceMatch,
   type IntelligenceMatchResult,
 } from "@/lib/intelligence/provenance-match";
-import type { ClusterIntelligence, Story } from "@/lib/types";
+import { applyIntelligenceToStory } from "@/lib/intelligence/apply";
+import type { ClusterIntelligence, OnboardingProfile, Story } from "@/lib/types";
 
 export type { IntelligenceMatchResult } from "@/lib/intelligence/provenance-match";
 export { verifyIntelligenceMatch } from "@/lib/intelligence/provenance-match";
@@ -129,30 +130,59 @@ export function mergeStoryIntelligenceSafely(
     return base;
   }
 
-  return {
-    ...base,
-    summary: enriched.summary,
-    whyItMatters: enriched.whyItMatters,
-    whyItMattersToYou: enriched.whyItMattersToYou,
-    nextWatch: enriched.nextWatch,
-    economicImplications: enriched.economicImplications,
-    perspectives: enriched.perspectives,
-    marketReaction: enriched.marketReaction,
-    sourceContext: enriched.sourceContext,
-    intelligenceGeneratedBy: enriched.intelligenceGeneratedBy,
-    intelligenceAiError: undefined,
-    intelligenceOpenaiError: undefined,
-    intelligenceAnchorSlug: enriched.intelligenceAnchorSlug ?? base.slug,
-    intelligenceAnchorHeadline:
-      enriched.intelligenceAnchorHeadline ?? base.headline,
-    intelligenceMaterialSlugs:
-      enriched.intelligenceMaterialSlugs ?? [base.slug],
-    intelligenceFingerprint: enriched.intelligenceFingerprint,
-    intelligenceClusterId: enriched.intelligenceClusterId,
-    paywallDetected: enriched.paywallDetected,
-    signalSummaryDisclaimer: enriched.signalSummaryDisclaimer,
-    corroboratingSlugs: enriched.corroboratingSlugs,
-  };
+  return ensureStoryIntelligenceFields(
+    {
+      ...base,
+      summary: enriched.summary,
+      whyItMatters: enriched.whyItMatters,
+      whyItMattersToYou: enriched.whyItMattersToYou,
+      nextWatch: enriched.nextWatch,
+      economicImplications: enriched.economicImplications,
+      perspectives: enriched.perspectives,
+      marketReaction: enriched.marketReaction,
+      sourceContext: enriched.sourceContext,
+      intelligenceGeneratedBy: enriched.intelligenceGeneratedBy,
+      intelligenceAiError: undefined,
+      intelligenceOpenaiError: undefined,
+      intelligenceAnchorSlug: enriched.intelligenceAnchorSlug ?? base.slug,
+      intelligenceAnchorHeadline:
+        enriched.intelligenceAnchorHeadline ?? base.headline,
+      intelligenceMaterialSlugs:
+        enriched.intelligenceMaterialSlugs ?? [base.slug],
+      intelligenceFingerprint: enriched.intelligenceFingerprint,
+      intelligenceClusterId: enriched.intelligenceClusterId,
+      paywallDetected: enriched.paywallDetected,
+      signalSummaryDisclaimer: enriched.signalSummaryDisclaimer,
+      corroboratingSlugs: enriched.corroboratingSlugs,
+    },
+    null
+  );
+}
+
+/** Fill any missing intelligence sections on a story before render. */
+export function ensureStoryIntelligenceFields(
+  story: Story,
+  profile: OnboardingProfile | null = null
+): Story {
+  return applyIntelligenceToStory(
+    story,
+    {
+      theBriefing: story.summary ?? "",
+      whyItMatters: story.whyItMatters ?? "",
+      whyItMattersToYou: story.whyItMattersToYou,
+      nextWatch: story.nextWatch,
+      generatedAt: new Date().toISOString(),
+      profileFingerprint: "",
+      generatedBy: story.intelligenceGeneratedBy ?? "fallback",
+      signalSummaryDisclaimer: story.signalSummaryDisclaimer,
+      paywallSignal: story.paywallDetected,
+      anchorSlug: story.intelligenceAnchorSlug ?? story.slug,
+      anchorHeadline: story.intelligenceAnchorHeadline ?? story.headline,
+      materialSlugs: story.intelligenceMaterialSlugs ?? [story.slug],
+      clusterId: story.intelligenceClusterId,
+    },
+    profile
+  );
 }
 
 export function stripIntelligenceFields(story: Story): Story {

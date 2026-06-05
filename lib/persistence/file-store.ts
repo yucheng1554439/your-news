@@ -10,7 +10,10 @@ async function ensureDir(): Promise<void> {
 }
 
 function filePath(key: string): string {
-  const safe = key.replace(/[^a-z0-9:_-]/gi, "_").slice(0, 120);
+  const safe = key
+    .replace(/[^a-z0-9:_-]/gi, "_")
+    .replace(/:/g, "_")
+    .slice(0, 120);
   return path.join(DATA_DIR, `${safe}.json`);
 }
 

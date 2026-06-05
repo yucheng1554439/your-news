@@ -1,3 +1,5 @@
+import "server-only";
+
 import { detectNarrativeTheme, type NarrativeTheme } from "@/lib/editorial/narrative-clusters";
 import { THEME_LABELS } from "@/lib/briefing/narrative-synthesis";
 import { logWeeklySelection } from "@/lib/briefing/weekly-pipeline-log";
@@ -17,8 +19,8 @@ const THREAD_LIMITS: Record<
   BriefingCadence,
   { max: number; min: number }
 > = {
-  daily: { max: 3, min: 1 },
-  weekly: { max: 10, min: 1 },
+  daily: { max: 999, min: 1 },
+  weekly: { max: 999, min: 1 },
 };
 
 function buildCacheKeyId(threads: NarrativeThread[]): string {

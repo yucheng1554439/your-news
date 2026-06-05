@@ -8,8 +8,7 @@ import {
   metadataSizeReport,
 } from "@/lib/clerk/metadata-size";
 import { mergePublicMetadata } from "@/lib/clerk/merge-public-metadata";
-import { parseOnboardingFromMetadata } from "@/lib/onboarding-metadata";
-import { getTopicPreferencesForUser } from "@/lib/user-profile/store";
+import { getOnboardingForUser } from "@/lib/services/onboarding";
 import type { OnboardingProfile } from "@/lib/types";
 
 export type SaveOnboardingErrorCategory =
@@ -120,19 +119,7 @@ async function persistClerkOnboarding(
 export async function getOnboardingFromClerk(): Promise<OnboardingProfile | null> {
   const { userId } = await auth();
   if (!userId) return null;
-
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const clerkProfile = parseOnboardingFromMetadata(
-    user.publicMetadata as Record<string, unknown>
-  );
-  if (!clerkProfile) return null;
-
-  const topicPreferences = await getTopicPreferencesForUser(userId);
-  return {
-    ...clerkProfile,
-    topicPreferences,
-  };
+  return getOnboardingForUser(userId);
 }
 
 export async function saveOnboardingToClerk(

@@ -5,11 +5,17 @@ export const PERSIST_KEYS = {
   intelligenceMeta: "yn:v2:intelligence-meta",
   weeklyBriefingPrefix: "yn:v1:weekly:",
   userProfilePrefix: "yn:v2:user-profile:",
+  userIntelligenceSnapshotPrefix: "yn:v3:user-intel:",
 } as const;
 
 export function userProfileKey(userId: string): string {
   const safe = userId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
   return `${PERSIST_KEYS.userProfilePrefix}${safe}`;
+}
+
+export function userIntelligenceSnapshotKey(userId: string): string {
+  const safe = userId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
+  return `${PERSIST_KEYS.userIntelligenceSnapshotPrefix}${safe}`;
 }
 
 export function weeklyBriefingKey(cacheKey: string): string {

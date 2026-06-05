@@ -27,13 +27,13 @@ import type { UserIntelligenceProfile } from "@/lib/personalization/user-intelli
 import { useOnboardingSync } from "@/hooks/use-onboarding-sync";
 import { useBriefing } from "@/hooks/use-briefing";
 import { getFeaturedStory } from "@/lib/data/featured";
-import type { CadenceBriefings } from "@/lib/briefing/types";
+import type { BriefingBundle } from "@/lib/briefing/types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 interface DashboardProps {
   stories: Story[];
   globalStories?: Story[];
-  briefings?: CadenceBriefings;
+  briefings?: BriefingBundle;
   intelligenceUpdatedAt?: number | null;
   storiesFetchedAt?: number;
   hasIntelligenceSnapshot?: boolean;
@@ -50,7 +50,7 @@ interface DashboardProps {
 export function Dashboard({
   stories,
   globalStories,
-  briefings = { daily: {}, weekly: {} },
+  briefings = {},
   intelligenceUpdatedAt = null,
   storiesFetchedAt,
   hasIntelligenceSnapshot = false,
@@ -74,9 +74,7 @@ export function Dashboard({
 
   const {
     feedMode,
-    cadence,
     handleFeedModeChange,
-    handleCadenceChange,
     heroBriefing,
   } = useBriefing(stories, profile, briefings);
 
@@ -226,8 +224,6 @@ export function Dashboard({
       <HeroSection
         feedMode={feedMode}
         onFeedModeChange={handleFeedModeChange}
-        cadence={cadence}
-        onCadenceChange={handleCadenceChange}
         briefing={heroBriefing}
         lastUpdated={intelligenceUpdatedAt}
         storiesFetchedAt={storiesFetchedAt}

@@ -73,8 +73,12 @@ function profileHashFor(profile: OnboardingProfile | null): string {
   );
 }
 
-function packageToStory(story: Story, pkg: StoryIntelligencePackage): Story {
-  return applyIntelligenceToStory(story, pkg);
+function packageToStory(
+  story: Story,
+  pkg: StoryIntelligencePackage,
+  profile: OnboardingProfile | null = null
+): Story {
+  return applyIntelligenceToStory(story, pkg, profile);
 }
 
 /** Metadata-based signal summary — only when article body is unavailable. */
@@ -99,7 +103,7 @@ export async function enrichStoryWithMetadataSignal(
     undefined,
     (raw.materialSlugs?.length ?? 1) > 1
   );
-  return packageToStory(anchorStory, pkg);
+  return packageToStory(anchorStory, pkg, profile);
 }
 
 async function resolveAnchorOnlyIntelligence(
@@ -311,7 +315,7 @@ export async function enrichStoryWithIntelligence(
   const profileHash = profileHashFor(profile);
 
   let pkg = await resolveStoryIntelligence(anchorStory, profile, { pool });
-  let enriched = packageToStory(anchorStory, pkg);
+  let enriched = packageToStory(anchorStory, pkg, profile);
 
   let match = verifyIntelligenceMatch(story, enriched);
   if (!match.match && isArticleBodyAvailable(anchorStory)) {
@@ -322,7 +326,7 @@ export async function enrichStoryWithIntelligence(
       profileHash
     );
     if (anchorPkg) {
-      enriched = packageToStory(anchorStory, anchorPkg);
+      enriched = packageToStory(anchorStory, anchorPkg, profile);
       match = verifyIntelligenceMatch(story, enriched);
     }
   }

@@ -1,8 +1,14 @@
+import "server-only";
+
 import {
   detectNarrativeTheme,
   type NarrativeTheme,
 } from "@/lib/editorial/narrative-clusters";
 import { THEME_LABELS } from "@/lib/briefing/narrative-synthesis";
+import {
+  briefingCorpusForCadence,
+  expandSelectionToCorpusMinimum,
+} from "@/lib/briefing/briefing-corpus";
 import { selectPersonalizedWeeklyThreads } from "@/lib/briefing/personalized-weekly";
 import {
   buildWeeklyIntelligenceMap,
@@ -13,9 +19,12 @@ import {
   logWeeklyCluster,
   type WeeklyFilterStats,
 } from "@/lib/briefing/weekly-pipeline-log";
-import type { WeeklyBriefingSelection, NarrativeThread } from "@/lib/briefing/weekly-selection";
+import type {
+  WeeklyBriefingSelection,
+  NarrativeThread,
+} from "@/lib/briefing/weekly-selection";
 import type { UserIntelligenceProfile } from "@/lib/personalization/user-intelligence-types";
-import type { BriefingMode } from "@/lib/briefing/types";
+import type { BriefingCadence, BriefingMode } from "@/lib/briefing/types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
 export type DailyExclusion = {
@@ -50,12 +59,9 @@ export function filterExcludedWithStats(
   }
 
   const slugSet = new Set(exclusion.slugs);
-  const themeSet = new Set<NarrativeTheme>(exclusion.themes);
 
   let removedBySlug = 0;
-  let removedByTheme = 0;
 
-  /** Weekly: exclude daily slugs only — keep full thematic landscape for synthesis. */
   const slugOnly = stories.filter((s) => {
     if (slugSet.has(s.slug)) {
       removedBySlug += 1;
@@ -99,43 +105,52 @@ function buildCacheKeyId(threads: NarrativeThread[]): string {
     .map((t) => t.clusterId)
     .sort()
     .join("+");
-  return `global:${ids.slice(0, 120)}`;
+  return `landscape:${ids.slice(0, 120)}`;
 }
 
-function selectGlobalWeeklyFromMap(
+function selectGlobalLandscapeFromMap(
   pool: Story[],
   profile: OnboardingProfile | null,
+  cadence: BriefingCadence,
   intelligence?: UserIntelligenceProfile | null
 ): WeeklyBriefingSelection {
   const map = buildWeeklyIntelligenceMap(pool, profile, "global", intelligence);
 
   console.log(
-    "[WEEKLY_SELECTION] global landscape",
+    `[BRIEFING_CORPUS] ${cadence}/global landscape`,
     formatWeeklyLandscapeSummary(map)
   );
 
   if (map.entries.length === 0) {
-    const theme = pool[0]
-      ? detectNarrativeTheme(pool[0])
-      : ("general" as NarrativeTheme);
+    const byTheme = new Map<NarrativeTheme, Story[]>();
+    for (const story of pool) {
+      const theme = (story.narrativeTheme ??
+        detectNarrativeTheme(story)) as NarrativeTheme;
+      const list = byTheme.get(theme) ?? [];
+      list.push(story);
+      byTheme.set(theme, list);
+    }
+    const themeGroups =
+      byTheme.size >= 2
+        ? [...byTheme.entries()]
+        : ([["general", pool]] as [NarrativeTheme, Story[]][]);
+
     return {
-      cadence: "weekly",
+      cadence,
       mode: "global",
       lens: "pattern",
-      cacheKeyId: "pattern:global:fallback",
-      threads: [
-        {
-          clusterId: "global:fallback",
-          theme,
-          label: THEME_LABELS[theme],
-          personalScore: 0,
-          stories: pool.slice(0, 40),
-        },
-      ],
+      cacheKeyId: `${cadence}:landscape:fallback`,
+      threads: themeGroups.map(([theme, stories], idx) => ({
+        clusterId: `global:fallback:${theme}:${idx}`,
+        theme,
+        label: THEME_LABELS[theme],
+        personalScore: 0,
+        stories,
+      })),
     };
   }
 
-  const threads: NarrativeThread[] = map.entries.slice(0, 6).map((entry) => {
+  const threads: NarrativeThread[] = map.entries.map((entry) => {
     logWeeklyCluster({
       mode: "global",
       clusterId: entry.cluster.id,
@@ -155,39 +170,68 @@ function selectGlobalWeeklyFromMap(
   });
 
   return {
-    cadence: "weekly",
+    cadence,
     mode: "global",
     lens: "pattern",
-    cacheKeyId: `pattern:${buildCacheKeyId(threads)}`,
+    cacheKeyId: `${cadence}:${buildCacheKeyId(threads)}`,
     threads,
   };
 }
 
 /**
- * Weekly = PATTERN briefing. Full corpus → clusters → synthesis (global or personalized).
+ * Daily or weekly LANDSCAPE briefing — full cadence corpus, all clusters.
+ * For You uses the same source pool as Global; personalization is ranking only.
  */
 export function selectWeeklyPatternBriefing(
   corpus: Story[],
   mode: BriefingMode,
   profile: OnboardingProfile | null,
+  cadence: BriefingCadence = "weekly",
   exclusion?: DailyExclusion,
   intelligence?: UserIntelligenceProfile | null
 ): WeeklyBriefingSelection {
-  const { pool } = filterExcludedWithStats(corpus, exclusion, mode);
+  const cadencePool = briefingCorpusForCadence(corpus, cadence);
+  const { pool } = filterExcludedWithStats(cadencePool, exclusion, mode);
+
+  let selection: WeeklyBriefingSelection;
 
   if (mode === "global") {
-    return selectGlobalWeeklyFromMap(pool, profile, intelligence);
+    selection = selectGlobalLandscapeFromMap(
+      pool,
+      profile,
+      cadence,
+      intelligence
+    );
+  } else {
+    const personalized = selectPersonalizedWeeklyThreads(
+      pool,
+      profile,
+      cadence,
+      intelligence
+    );
+    selection = {
+      ...personalized,
+      lens: "pattern",
+      cacheKeyId: personalized.cacheKeyId.replace(/^weekly:/, `${cadence}:`),
+    };
   }
 
-  const personalized = selectPersonalizedWeeklyThreads(
-    pool,
+  return expandSelectionToCorpusMinimum(selection, pool, mode, profile);
+}
+
+/** @deprecated Use selectWeeklyPatternBriefing — daily now uses full landscape too. */
+export function selectDailyEventBriefing(
+  stories: Story[],
+  mode: BriefingMode,
+  profile: OnboardingProfile | null,
+  intelligence?: UserIntelligenceProfile | null
+): WeeklyBriefingSelection {
+  return selectWeeklyPatternBriefing(
+    stories,
+    mode,
     profile,
-    "weekly",
+    "daily",
+    undefined,
     intelligence
   );
-  return {
-    ...personalized,
-    lens: "pattern",
-    cacheKeyId: personalized.cacheKeyId.replace(/^weekly:/, "pattern:"),
-  };
 }

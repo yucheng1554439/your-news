@@ -75,6 +75,7 @@ const THEME_RULES: ThemeRule[] = [
 
 const ENTITY_PATTERNS: { id: string; pattern: RegExp }[] = [
   { id: "nvidia", pattern: /\bnvidia\b/i },
+  { id: "broadcom", pattern: /\bbroadcom\b/i },
   { id: "openai", pattern: /\bopenai\b/i },
   { id: "anthropic", pattern: /\banthropic\b/i },
   { id: "microsoft", pattern: /\bmicrosoft\b/i },
@@ -211,6 +212,128 @@ function pickRepresentative(stories: Story[]): Story {
   })[0];
 }
 
+function buildClusterFromStoryGroup(
+  group: Story[],
+  idSuffix?: string
+): NarrativeCluster {
+  const theme: NarrativeTheme =
+    (group.find((s) => (s.narrativeTheme ?? "general") !== "general")
+      ?.narrativeTheme as NarrativeTheme | undefined) ??
+    detectNarrativeTheme(group[0]);
+  const entities = [
+    ...new Set(group.flatMap((s) => s.narrativeEntities ?? extractEntities(s))),
+  ];
+  const tier1Count = group.filter((s) => getStorySourceTier(s) === 1).length;
+  const tier2Count = group.filter((s) => getStorySourceTier(s) === 2).length;
+  const id = `${theme}:${idSuffix ?? (entities.slice(0, 4).join("+") || normalizeHeadlineKey(group[0].headline).slice(0, 40))}`;
+
+  return {
+    id,
+    theme,
+    entities,
+    stories: group,
+    representative: pickRepresentative(group),
+    size: group.length,
+    tier1Count,
+    tier2Count,
+    corroborationScore: clusterCorroborationScore(
+      group.length,
+      tier1Count,
+      tier2Count
+    ),
+  };
+}
+
+function splitMegaCluster(mega: NarrativeCluster): NarrativeCluster[] {
+  const byTheme = new Map<NarrativeTheme, Story[]>();
+  for (const story of mega.stories) {
+    const theme = (story.narrativeTheme ??
+      detectNarrativeTheme(story)) as NarrativeTheme;
+    const list = byTheme.get(theme) ?? [];
+    list.push(story);
+    byTheme.set(theme, list);
+  }
+
+  if (byTheme.size >= 2) {
+    return [...byTheme.entries()]
+      .map(([theme, stories], idx) =>
+        buildClusterFromStoryGroup(stories, `theme-${theme}-${idx}`)
+      )
+      .sort(
+        (a, b) =>
+          b.corroborationScore * b.size - a.corroborationScore * a.size ||
+          (b.representative.importanceScore ?? 0) -
+            (a.representative.importanceScore ?? 0)
+      );
+  }
+
+  const sorted = [...mega.stories].sort(
+    (a, b) => (b.importanceScore ?? 0) - (a.importanceScore ?? 0)
+  );
+  const targetClusters = Math.min(
+    5,
+    Math.max(3, Math.ceil(sorted.length / 10))
+  );
+  const chunkSize = Math.max(3, Math.ceil(sorted.length / targetClusters));
+  const chunks: NarrativeCluster[] = [];
+  for (let i = 0; i < sorted.length; i += chunkSize) {
+    chunks.push(
+      buildClusterFromStoryGroup(
+        sorted.slice(i, i + chunkSize),
+        `desk-chunk-${i / chunkSize}`
+      )
+    );
+  }
+  return chunks.sort(
+    (a, b) =>
+      b.corroborationScore * b.size - a.corroborationScore * a.size ||
+      (b.representative.importanceScore ?? 0) -
+        (a.representative.importanceScore ?? 0)
+  );
+}
+
+/**
+ * Prevent single mega-clusters from collapsing weekly/global synthesis.
+ * Re-splits when one cluster holds >80% of stories (unless corpus is tiny).
+ */
+export function ensureMinimumNarrativeClusters(
+  clusters: NarrativeCluster[],
+  options?: {
+    minStories?: number;
+    dominanceThreshold?: number;
+  }
+): NarrativeCluster[] {
+  const minStories = options?.minStories ?? 20;
+  const dominanceThreshold = options?.dominanceThreshold ?? 0.8;
+  const totalStories = clusters.reduce((n, c) => n + c.size, 0);
+
+  if (totalStories < minStories || clusters.length === 0) {
+    return clusters;
+  }
+
+  if (clusters.length === 1) {
+    const mega = clusters[0]!;
+    if (mega.size / totalStories > dominanceThreshold) {
+      const split = splitMegaCluster(mega);
+      if (split.length > 1) {
+        console.warn(
+          "[BRIEFING_CLUSTER_WARNING]",
+          JSON.stringify({
+            reason: "mega_cluster_split",
+            before: 1,
+            after: split.length,
+            stories: totalStories,
+            clusterIds: split.map((c) => c.id).slice(0, 8),
+          })
+        );
+        return split;
+      }
+    }
+  }
+
+  return clusters;
+}
+
 export function buildNarrativeClusters(stories: Story[]): NarrativeCluster[] {
   const enriched = stories.map((s) => ({
     ...s,
@@ -248,32 +371,7 @@ export function buildNarrativeClusters(stories: Story[]): NarrativeCluster[] {
   const clusters: NarrativeCluster[] = [];
 
   for (const [, group] of groups) {
-    const theme: NarrativeTheme =
-      (group.find((s) => (s.narrativeTheme ?? "general") !== "general")
-        ?.narrativeTheme as NarrativeTheme | undefined) ??
-      detectNarrativeTheme(group[0]);
-    const entities = [
-      ...new Set(group.flatMap((s) => s.narrativeEntities ?? extractEntities(s))),
-    ];
-    const tier1Count = group.filter((s) => getStorySourceTier(s) === 1).length;
-    const tier2Count = group.filter((s) => getStorySourceTier(s) === 2).length;
-    const id = `${theme}:${entities.slice(0, 4).join("+") || normalizeHeadlineKey(group[0].headline).slice(0, 40)}`;
-
-    clusters.push({
-      id,
-      theme,
-      entities,
-      stories: group,
-      representative: pickRepresentative(group),
-      size: group.length,
-      tier1Count,
-      tier2Count,
-      corroborationScore: clusterCorroborationScore(
-        group.length,
-        tier1Count,
-        tier2Count
-      ),
-    });
+    clusters.push(buildClusterFromStoryGroup(group));
   }
 
   return clusters.sort(

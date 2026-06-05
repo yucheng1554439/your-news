@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   buildClusterIntelligence,
   clusterStoriesForBriefing,
@@ -5,6 +7,8 @@ import {
 } from "@/lib/editorial/cluster-intelligence";
 import {
   buildNarrativeClusters,
+  ensureMinimumNarrativeClusters,
+  detectNarrativeTheme,
   type NarrativeCluster,
   type NarrativeTheme,
 } from "@/lib/editorial/narrative-clusters";
@@ -191,7 +195,21 @@ export function buildWeeklyIntelligenceMap(
   intelligence?: UserIntelligenceProfile | null
 ): WeeklyIntelligenceMap {
   const pool = weeklyCorpusPool(corpus);
-  const clusters = buildNarrativeClusters(pool);
+  let clusters = buildNarrativeClusters(pool);
+  clusters = ensureMinimumNarrativeClusters(clusters);
+
+  if (clusters.length <= 1 && pool.length > 20) {
+    console.warn(
+      "[BRIEFING_CLUSTER_WARNING]",
+      JSON.stringify({
+        reason: "single_cluster_after_split",
+        stories: pool.length,
+        clusterCount: clusters.length,
+        clusterId: clusters[0]?.id ?? null,
+        clusterSize: clusters[0]?.size ?? 0,
+      })
+    );
+  }
 
   const entries: WeeklyIntelligenceMapEntry[] = clusters.map((cluster) => {
     const globalScore = scoreGlobalCluster(cluster);

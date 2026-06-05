@@ -1,12 +1,16 @@
 import { Navbar } from "@/components/Navbar";
 import { Dashboard } from "@/components/Dashboard";
+import { auth } from "@clerk/nextjs/server";
 import { getOnboardingFromClerk } from "@/app/actions/onboarding";
 import { loadPlatformDashboard } from "@/lib/intelligence/platform-snapshot";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const profile = await getOnboardingFromClerk();
-  const dashboard = await loadPlatformDashboard(profile);
+  const { userId } = await auth();
+  const dashboard = await loadPlatformDashboard(profile, {
+    userId: userId ?? undefined,
+  });
 
   return (
     <div className="min-h-screen bg-zinc-950">

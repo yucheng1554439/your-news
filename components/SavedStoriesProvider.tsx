@@ -15,6 +15,7 @@ import {
   toggleSavedStory,
 } from "@/app/actions/saved-stories";
 import type { SavedStoryRef } from "@/lib/saved-stories/metadata";
+import { storyToSavedSnapshot } from "@/lib/saved-stories/metadata";
 import type { Story } from "@/lib/types";
 
 type SavedStoriesContextValue = {
@@ -73,18 +74,7 @@ export function SavedStoriesProvider({ children }: { children: ReactNode }) {
       const previous = items;
       const optimistic = wasSaved
         ? items.filter((i) => i.slug !== story.slug)
-        : [
-            {
-              slug: story.slug,
-              headline: story.headline,
-              imageUrl: story.imageUrl,
-              source: story.source,
-              publishedAt: story.publishedAt,
-              category: story.category,
-              savedAt: Date.now(),
-            },
-            ...items,
-          ];
+        : [storyToSavedSnapshot(story), ...items];
 
       setItems(optimistic);
 

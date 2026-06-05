@@ -1,3 +1,7 @@
+import {
+  briefingMetaColor,
+  briefingSectionLabelColor,
+} from "@/components/BriefingMemo";
 import type { BriefingProvenance as Provenance } from "@/lib/briefing/types";
 
 interface BriefingProvenanceProps {
@@ -9,7 +13,15 @@ export function BriefingProvenance({
   provenance,
   className = "",
 }: BriefingProvenanceProps) {
-  if (provenance.articleCount === 0) return null;
+  const stories =
+    provenance.storiesProcessed ?? provenance.articleCount ?? 0;
+  const narratives =
+    provenance.narrativesProcessed ?? provenance.narrativeCount ?? 0;
+  const sources =
+    provenance.sourcesProcessed ?? provenance.sourceCount ?? 0;
+  const signals = provenance.signalsProcessed ?? 0;
+
+  if (stories === 0) return null;
 
   const sourceLine =
     provenance.sources.length > 0
@@ -18,28 +30,43 @@ export function BriefingProvenance({
 
   return (
     <div
-      className={`mt-4 space-y-2 border-t border-white/10 pt-4 text-xs text-zinc-500 ${className}`}
+      className={`mt-4 space-y-2 border-t border-white/10 pt-4 text-xs ${className}`}
+      style={{ color: briefingMetaColor }}
     >
       <p>
-        <span className="text-zinc-600">Primary sources · </span>
+        <span style={{ color: briefingSectionLabelColor }}>
+          Synthesis corpus ·{" "}
+        </span>
+        {stories} {stories === 1 ? "story" : "stories"}
+        {narratives > 0 ? (
+          <>
+            {" "}
+            · {narratives}{" "}
+            {narratives === 1 ? "narrative" : "narratives"}
+          </>
+        ) : null}
+        {sources > 0 ? (
+          <>
+            {" "}
+            · {sources}{" "}
+            {sources === 1 ? "source" : "sources"}
+          </>
+        ) : null}
+        {signals > 0 ? (
+          <>
+            {" "}
+            · {signals} {signals === 1 ? "signal" : "signals"}
+          </>
+        ) : null}
+      </p>
+      <p>
+        <span style={{ color: briefingSectionLabelColor }}>
+          Primary sources ·{" "}
+        </span>
         {sourceLine}
         {provenance.sources.length > 8
           ? ` · +${provenance.sources.length - 8} more`
           : null}
-      </p>
-      <p>
-        <span className="text-zinc-600">Built from · </span>
-        {provenance.articleCount}{" "}
-        {provenance.articleCount === 1 ? "article" : "articles"}
-        {provenance.narrativeCount > 0 ? (
-          <>
-            {" "}
-            · {provenance.narrativeCount}{" "}
-            {provenance.narrativeCount === 1 ? "narrative" : "narratives"}
-          </>
-        ) : null}{" "}
-        · {provenance.sourceCount}{" "}
-        {provenance.sourceCount === 1 ? "organization" : "organizations"}
       </p>
     </div>
   );

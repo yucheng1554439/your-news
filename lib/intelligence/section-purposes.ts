@@ -9,7 +9,17 @@ import {
 } from "@/lib/intelligence/writing-guardrails";
 
 export const WEEKLY_ADVISOR_RULES = `${OPERATOR_TONE}
-- Weekly: one narrative lane only. Homepage copy — short and scannable, not a report.`;
+- Weekly: synthesize like analyst research — multi-narrative, multi-source, relationship-driven.
+- NEVER output placeholder lines ("no direct impact", "monitor whether reporting changes").
+- Each section must reference at least 2 narrative clusters or 3+ sources when material allows.`;
+
+export const WEEKLY_SYNTHESIS_RULES = `SYNTHESIS QUALITY (mandatory):
+- Write like Morgan Stanley / Goldman strategy research — not news recap, not consulting filler.
+- WHAT_CHANGED: cross-cluster pattern — use Theme 1 / Theme 2 structure when 2+ clusters exist. How threads relate, not a list of company headlines.
+- WHY_YOU / WHY_IT_MATTERS: decisions, exposure, and implications — cite multiple threads.
+- BANNED: "no direct impact detected", single-company summaries, generic "monitor developments".
+- Each section ≥ 3 sentences when corpus has 20+ stories.
+- Global answers "What happened?" — For You answers "What happened that matters to THIS user?" using the SAME corpus.`;
 
 export const WRITING_RULES = `Writing standard:
 ${GROUNDED_REASONING}
@@ -36,11 +46,11 @@ export const STORY_SECTIONS = {
 } as const;
 
 export const WEEKLY_GLOBAL = {
-  purpose: "What mattered in the world this week (this narrative)?",
-  task: "World judgment only: what happened, who was affected, what may follow if it continues, what to verify. Not personal career advice.",
+  purpose: "What happened in the world this period?",
+  task: "Executive intelligence memo: synthesize ALL provided clusters into 2–5 parallel themes. Format WHAT_CHANGED as Theme 1 / Theme 2 / Theme 3 blocks — each theme references multiple articles and sources. Explain how themes connect. Not a list of company headlines or article excerpts.",
 } as const;
 
 export const WEEKLY_FOR_YOU = {
-  purpose: "What developments matter most to THIS reader this week?",
-  task: "Multi-narrative personal briefing: synthesize ALL provided threads through career, interests, focus, and tone. State what affects their decisions, plausible implications (may/could), and watch items. Must differ fundamentally from Global.",
+  purpose: "What happened that matters most to THIS reader?",
+  task: "Personal investment memo: same corpus as Global, but rank threads by reader career + interests. WHY_YOU must discuss concrete decisions (engineering, hiring, infrastructure, vendors, capital, supply chain) — never 'no direct impact'. Reference 2+ threads with source breadth. WATCH = future confirming events (earnings, policy, procurement). ACTION = what the reader should do (evaluate, review, prepare) — never duplicate WATCH with Monitor/Confirm relevance phrasing.",
 } as const;

@@ -1,5 +1,9 @@
+import "server-only";
+
 import type { WeeklyBriefingSelection } from "@/lib/briefing/weekly-selection";
+import { allStoriesFromSelection } from "@/lib/briefing/weekly-selection";
 import type { BriefingProvenance } from "@/lib/briefing/types";
+import { countSignalsInStories } from "@/lib/briefing/briefing-corpus";
 import { getStorySourceTier } from "@/lib/editorial/source-authority";
 import type { Story } from "@/lib/types";
 
@@ -8,8 +12,8 @@ function normalizeSourceName(raw: string): string {
 }
 
 export function buildProvenanceFromStories(stories: Story[]): BriefingProvenance {
-  const tierOrder = (name: string, stories: Story[]) => {
-    const tier = stories.find((s) => s.source === name);
+  const tierOrder = (name: string, storyList: Story[]) => {
+    const tier = storyList.find((s) => s.source === name);
     return tier ? getStorySourceTier(tier) : 3;
   };
 
@@ -28,41 +32,53 @@ export function buildProvenanceFromStories(stories: Story[]): BriefingProvenance
     return a.localeCompare(b);
   });
 
+  const storiesProcessed = stories.length;
+  const sourcesProcessed = sources.length;
+
   return {
-    articleCount: stories.length,
+    articleCount: storiesProcessed,
     narrativeCount: 0,
-    sourceCount: sources.length,
+    sourceCount: sourcesProcessed,
     sources: sources.slice(0, 12),
+    storiesProcessed,
+    sourcesProcessed,
+    narrativesProcessed: 0,
+    signalsProcessed: countSignalsInStories(stories),
   };
 }
 
 export function buildProvenanceFromSelection(
   selection: WeeklyBriefingSelection
 ): BriefingProvenance {
+  const synthesisStories = allStoriesFromSelection(selection);
   const narrativeCount = selection.threads.length;
   const threadsWithCluster = selection.threads.filter((t) => t.cluster);
 
   if (threadsWithCluster.length > 0) {
-    const sources = new Set<string>();
-    let articleCount = 0;
-    for (const thread of threadsWithCluster) {
-      const cluster = thread.cluster!;
-      articleCount += cluster.articleCount;
-      for (const source of cluster.sources) {
-        sources.add(source.name);
-      }
-    }
+    const storiesProcessed = synthesisStories.length;
+    const sourceNames = [
+      ...new Set(
+        synthesisStories.map((s) => normalizeSourceName(s.source || "Unknown"))
+      ),
+    ];
+    const sourcesProcessed = sourceNames.length;
+
     return {
-      articleCount,
+      articleCount: storiesProcessed,
       narrativeCount,
-      sourceCount: sources.size,
-      sources: [...sources].slice(0, 12),
+      sourceCount: sourcesProcessed,
+      sources: sourceNames.slice(0, 12),
+      storiesProcessed,
+      sourcesProcessed,
+      narrativesProcessed: narrativeCount,
+      signalsProcessed: countSignalsInStories(synthesisStories),
     };
   }
 
-  const stories = selection.threads.flatMap((t) => t.stories);
+  const fromStories = buildProvenanceFromStories(synthesisStories);
   return {
-    ...buildProvenanceFromStories(stories),
+    ...fromStories,
     narrativeCount,
+    narrativesProcessed: narrativeCount,
   };
 }

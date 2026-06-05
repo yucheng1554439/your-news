@@ -1,9 +1,15 @@
+import "server-only";
+
 import {
   detectNarrativeTheme,
   type NarrativeTheme,
 } from "@/lib/editorial/narrative-clusters";
 import { THEME_LABELS } from "@/lib/briefing/narrative-synthesis";
 import { storyHasUsableMaterial } from "@/lib/briefing/source-material";
+import {
+  isDeveloperBriefingDiagnostic,
+  stripBriefingDiagnostics,
+} from "@/lib/briefing/shared/diagnostics";
 import {
   allStoriesFromSelection,
   type WeeklyBriefingSelection,
@@ -15,13 +21,10 @@ import {
 import type { BriefingCadence, BriefingMode } from "@/lib/briefing/types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
-const DEV_DIAGNOSTIC =
-  /(?:weekly|daily):\s*no stories selected|briefing prompt blocked|insufficient source text for briefing/i;
-
-export function isDeveloperBriefingDiagnostic(text?: string | null): boolean {
-  if (!text?.trim()) return false;
-  return DEV_DIAGNOSTIC.test(text);
-}
+export {
+  isDeveloperBriefingDiagnostic,
+  stripBriefingDiagnostics,
+} from "@/lib/briefing/shared/diagnostics";
 
 export function briefingIsUserSafe(briefing: {
   headline?: string;
@@ -34,27 +37,6 @@ export function briefingIsUserSafe(briefing: {
   if (isDeveloperBriefingDiagnostic(briefing.headline)) return false;
   if (!briefing.headline?.trim()) return false;
   return true;
-}
-
-/** Strip internal diagnostics before persisting or returning to the client. */
-export function stripBriefingDiagnostics<T extends { aiError?: string; openaiError?: string }>(
-  briefing: T
-): T {
-  const aiError = briefing.aiError;
-  const openaiError = briefing.openaiError;
-  if (
-    !isDeveloperBriefingDiagnostic(aiError) &&
-    !isDeveloperBriefingDiagnostic(openaiError)
-  ) {
-    return briefing;
-  }
-  return {
-    ...briefing,
-    aiError: isDeveloperBriefingDiagnostic(aiError) ? undefined : aiError,
-    openaiError: isDeveloperBriefingDiagnostic(openaiError)
-      ? undefined
-      : openaiError,
-  };
 }
 
 function rankRescuePool(

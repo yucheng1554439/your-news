@@ -210,3 +210,34 @@ export function computeSignalsDashboard(
     lensLabel,
   };
 }
+
+export type SignalRelevanceTier = "high" | "medium" | "low";
+
+export type SignalPersonalRelevance = {
+  tier: SignalRelevanceTier;
+  stars: number;
+  label: string;
+};
+
+/** User-facing relevance — no raw weights exposed. */
+export function computeSignalPersonalRelevance(
+  signalId: string,
+  profile: OnboardingProfile | null,
+  intelligence: UserIntelligenceProfile | null
+): SignalPersonalRelevance {
+  const boost = personalizationBoost(signalId, profile, intelligence);
+
+  if (boost >= 1.22) {
+    return { tier: "high", stars: 5, label: "High relevance to you" };
+  }
+  if (boost >= 1.08) {
+    return { tier: "high", stars: 4, label: "High relevance to you" };
+  }
+  if (boost >= 0.95) {
+    return { tier: "medium", stars: 3, label: "Moderate relevance" };
+  }
+  if (boost >= 0.82) {
+    return { tier: "medium", stars: 2, label: "Moderate relevance" };
+  }
+  return { tier: "low", stars: 1, label: "Low relevance to you" };
+}

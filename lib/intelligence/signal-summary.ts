@@ -4,6 +4,12 @@ import { findCorroboratingStoriesForIntelligence, extractCorroborationEntities }
 import { PAYWALL_SIGNAL_DISCLAIMER, METADATA_SIGNAL_DISCLAIMER } from "@/lib/extraction/paywall";
 import { getCategoryLabel } from "@/lib/data/categories";
 import { canGeneratePersonalizedSection } from "@/lib/intelligence/profile-context";
+import {
+  buildMetadataBriefing,
+  buildMetadataPersonalizedWhy,
+  buildMetadataWhatToWatch,
+  repairStoryIntelligencePackage,
+} from "@/lib/intelligence/story-intelligence-quality";
 import type { StoryIntelligencePackage } from "@/lib/intelligence/types";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
@@ -120,23 +126,10 @@ export function buildSignalSummary(
   story: Story,
   corroborating: Story[]
 ): string {
-  const lead = metadataExcerpt(story);
-  const parts: string[] = [];
-
-  if (lead) {
-    parts.push(firstSentence(lead));
-  } else {
-    parts.push(story.headline.trim());
-  }
+  const parts: string[] = [buildMetadataBriefing(story)];
 
   const corroborationLine = buildCorroborationSentence(story, corroborating);
   if (corroborationLine) parts.push(corroborationLine);
-
-  const entities = storyEntities(story);
-  const entityLabel = formatEntityList(entities);
-  if (entityLabel) {
-    parts.push(`Known entities in play include ${entityLabel}.`);
-  }
 
   const supporting = buildSupportingFacts(corroborating);
   if (supporting.length > 0) {
@@ -155,7 +148,6 @@ function buildSignalWhyItMatters(
   const entityLabel = formatEntityList(storyEntities(story));
   const outletCount = uniqueOutlets([story, ...corroborating]).length;
 
-  const lead = firstSentence(metadataExcerpt(story) || story.headline);
   const corroborationNote =
     outletCount >= 2
       ? `${outletCount} outlets are reporting the same thread. `
@@ -169,51 +161,11 @@ function buildSignalWhyItMatters(
     ? " Full publisher text is unavailable — treat this as an early signal until primary sources confirm details."
     : " Confirm against primary sources before acting.";
 
-  return `${corroborationNote}${lead} ${focus}${paywallNote}`.slice(0, 420);
+  return `${corroborationNote}${focus}${paywallNote}`.slice(0, 420);
 }
 
-function buildPersonalizedSignalWhy(
-  story: Story,
-  profile: OnboardingProfile,
-  corroborating: Story[]
-): string {
-  const interests =
-    profile.interests.length > 0
-      ? profile.interests.join(" and ")
-      : "your focus areas";
-  const domain = inferConsequenceDomain(story);
-  const outletCount = uniqueOutlets([story, ...corroborating]).length;
-  const corroborationNote =
-    outletCount >= 2
-      ? `${outletCount} outlets are tracking the same thread. `
-      : "";
-
-  const career = profile.career ?? "professional";
-  return `${corroborationNote}As a ${career} focused on ${interests}, map whether this changes a decision you own — the consequence lane is ${domain}.`.slice(
-    0,
-    480
-  );
-}
-
-function buildSignalNextWatch(
-  story: Story,
-  corroborating: Story[]
-): string {
-  const entityLabel = formatEntityList(storyEntities(story));
-  const outlets = uniqueOutlets([story, ...corroborating]);
-  const outletNote =
-    outlets.length > 1
-      ? outlets.slice(0, 3).join(", ")
-      : story.source;
-
-  const entityWatch = entityLabel
-    ? `whether ${entityLabel} issue statements, filings, or policy responses`
-    : "whether primary sources publish fuller confirmation";
-
-  return `Watch ${outletNote} for the next factual update, and track ${entityWatch}. Revisit once official reporting adds detail beyond the headline and excerpt.`.slice(
-    0,
-    420
-  );
+function buildSignalNextWatch(story: Story): string {
+  return buildMetadataWhatToWatch(story);
 }
 
 export function buildMetadataSignalIntelligence(
@@ -226,14 +178,14 @@ export function buildMetadataSignalIntelligence(
   const signalSummary = buildSignalSummary(story, corroborating);
   const paywall = options?.paywall ?? Boolean(story.paywallDetected);
 
-  return {
+  const pkg: StoryIntelligencePackage = {
     theBriefing: signalSummary,
     whyItMatters: buildSignalWhyItMatters(story, corroborating, paywall),
     whyItMattersToYou:
       profile && canGeneratePersonalizedSection(profile)
-        ? buildPersonalizedSignalWhy(story, profile, corroborating)
+        ? buildMetadataPersonalizedWhy(story, profile)
         : undefined,
-    nextWatch: buildSignalNextWatch(story, corroborating),
+    nextWatch: buildSignalNextWatch(story),
     generatedAt: new Date().toISOString(),
     profileFingerprint,
     generatedBy: "metadata",
@@ -243,6 +195,8 @@ export function buildMetadataSignalIntelligence(
       : METADATA_SIGNAL_DISCLAIMER,
     materialSlugs: [story.slug, ...corroborating.map((s) => s.slug)],
   };
+
+  return repairStoryIntelligencePackage(story, pkg, profile);
 }
 
 /** @deprecated Use buildMetadataSignalIntelligence */

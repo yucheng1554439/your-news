@@ -1,14 +1,13 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { buildWeeklyBriefingSync } from "@/lib/weekly-briefing";
+import { emptyBriefing } from "@/lib/briefing/shared/empty-briefing";
+import { normalizeBriefing } from "@/lib/briefing/shared/normalize";
 import type {
-  BriefingCadence,
+  BriefingBundle,
   BriefingMode,
-  CadenceBriefings,
   IntelligenceBriefing,
 } from "@/lib/briefing/types";
-import { normalizeBriefing } from "@/lib/briefing/types";
 import type { FeedMode } from "@/components/ToggleTabs";
 import type { OnboardingProfile, Story } from "@/lib/types";
 
@@ -19,54 +18,32 @@ function feedModeToBriefingMode(feedMode: FeedMode): BriefingMode {
 export function useBriefing(
   stories: Story[],
   profile: OnboardingProfile | null,
-  briefingsFromSnapshot: CadenceBriefings
+  briefingsFromSnapshot: BriefingBundle
 ) {
   const [feedMode, setFeedMode] = useState<FeedMode>("personalized");
-  const [cadence, setCadence] = useState<BriefingCadence>("weekly");
   const briefingMode = feedModeToBriefingMode(feedMode);
 
   const handleFeedModeChange = useCallback((mode: FeedMode) => {
     setFeedMode(mode);
   }, []);
 
-  const handleCadenceChange = useCallback((next: BriefingCadence) => {
-    setCadence(next);
-  }, []);
-
-  const heroBriefing = useMemo(() => {
-    const cached = briefingsFromSnapshot[cadence]?.[briefingMode];
-    if (cached?.mode === briefingMode && cached.cadence === cadence) {
+  const heroBriefing = useMemo((): IntelligenceBriefing => {
+    const cached = briefingsFromSnapshot[briefingMode];
+    if (cached?.mode === briefingMode) {
       return normalizeBriefing(cached);
     }
 
     if (!profile || stories.length === 0) {
-      return {
-        cadence,
-        mode: briefingMode,
-        periodLabel: "",
-        weekLabel: "",
-        headline: "",
-        summary: "",
-        keySignal: "",
-        provenance: {
-          articleCount: 0,
-          narrativeCount: 0,
-          sourceCount: 0,
-          sources: [],
-        },
-        generatedBy: "fallback",
-      } satisfies IntelligenceBriefing;
+      return emptyBriefing(briefingMode);
     }
 
-    return buildWeeklyBriefingSync(stories, briefingMode, profile, cadence);
-  }, [briefingsFromSnapshot, briefingMode, cadence, profile, stories]);
+    return emptyBriefing(briefingMode);
+  }, [briefingsFromSnapshot, briefingMode, profile, stories]);
 
   return {
     feedMode,
-    cadence,
     briefingMode,
     handleFeedModeChange,
-    handleCadenceChange,
     heroBriefing,
   };
 }

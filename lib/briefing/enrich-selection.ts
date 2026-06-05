@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   buildClusterIntelligence,
   clusterStoriesForBriefing,
@@ -13,8 +15,6 @@ import type {
   WeeklyBriefingSelection,
 } from "@/lib/briefing/weekly-selection";
 import type { Story } from "@/lib/types";
-
-const FOR_YOU_DAILY_MAX = 8;
 
 function resolveClusterForThread(
   thread: NarrativeThread,
@@ -54,42 +54,20 @@ function resolveClusterForThread(
   );
 }
 
-function storiesForThread(
-  cluster: NarrativeCluster,
-  thread: NarrativeThread,
-  mode: BriefingMode,
-  cadence: WeeklyBriefingSelection["cadence"]
-): Story[] {
-  if (cadence === "weekly") {
-    return clusterStoriesForBriefing(cluster, MAX_CLUSTER_BRIEFING_STORIES);
-  }
-
-  if (mode === "global") {
-    return clusterStoriesForBriefing(cluster, MAX_CLUSTER_BRIEFING_STORIES);
-  }
-
-  const cap = FOR_YOU_DAILY_MAX;
-
-  const leadSlug = thread.stories[0]?.slug;
-  const ordered = [...cluster.stories].sort((a, b) => {
-    if (a.slug === leadSlug) return -1;
-    if (b.slug === leadSlug) return 1;
-    return (b.importanceScore ?? 0) - (a.importanceScore ?? 0);
-  });
-
-  return ordered.slice(0, cap);
+function storiesForThread(cluster: NarrativeCluster): Story[] {
+  return clusterStoriesForBriefing(cluster, MAX_CLUSTER_BRIEFING_STORIES);
 }
 
 function enrichThread(
   thread: NarrativeThread,
   clusters: NarrativeCluster[],
-  mode: BriefingMode,
-  cadence: WeeklyBriefingSelection["cadence"]
+  _mode: BriefingMode,
+  _cadence: WeeklyBriefingSelection["cadence"]
 ): NarrativeThread {
   const cluster = resolveClusterForThread(thread, clusters);
   if (!cluster) return thread;
 
-  const stories = storiesForThread(cluster, thread, mode, cadence);
+  const stories = storiesForThread(cluster);
   if (stories.length === 0 && thread.stories.length > 0) {
     return thread;
   }
@@ -111,8 +89,7 @@ export type EnrichBriefingOptions = {
 
 /**
  * Attach cluster objects for synthesis.
- * Weekly (global + for-you) → full cluster coverage from corpus.
- * Daily for-you → filtered subset for the reader.
+ * All cadences and modes → full cluster coverage from corpus.
  */
 export function enrichBriefingSelection(
   selection: WeeklyBriefingSelection,

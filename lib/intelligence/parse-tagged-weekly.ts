@@ -1,6 +1,10 @@
 import "server-only";
 
 import { formatBriefingForDisplay } from "@/lib/briefing/format-display";
+import {
+  logBriefingParseSuccess,
+  sectionsFromDraft,
+} from "@/lib/briefing/briefing-generation-audit";
 import { logBriefing } from "@/lib/briefing/briefing-log";
 import {
   deriveFallbackHeadline,
@@ -9,7 +13,11 @@ import {
   normalizeKeySignal,
   normalizeWeeklySummary,
 } from "@/lib/briefing/format-weekly";
-import { normalizeThesisHeadline } from "@/lib/briefing/thesis-title";
+import {
+  hasDuplicatedHeadlinePhrase,
+  normalizeThesisHeadline,
+  rejectDuplicateHeadline,
+} from "@/lib/briefing/thesis-title";
 import { deriveKeySignal } from "@/lib/briefing/key-signal";
 import { recordAIResponse } from "@/lib/intelligence/latest-ai-response";
 import {
@@ -256,8 +264,12 @@ function finalizeBriefing(input: {
 
   if (input.mode === "for-you" && !positioning) {
     positioning =
-      "Review exposure and timing against the facts above before acting.";
+      "Review exposure and timing against the threads above before acting.";
     filled.push("action");
+  }
+
+  if (input.mode === "for-you" && !whyYou?.trim()) {
+    filled.push("why_you_missing");
   }
 
   let keySignal = input.keySignal.trim();
@@ -265,7 +277,7 @@ function finalizeBriefing(input: {
   if (!keySignal) keySignal = deriveKeySignal(input.selected);
   keySignal = normalizeKeySignal(safeProse(keySignal));
 
-  if (isListLikeHeadline(headline)) {
+  if (isListLikeHeadline(headline) || hasDuplicatedHeadlinePhrase(headline)) {
     headline = fallbackTitle;
     filled.push("headline_list_fix");
   }
@@ -276,6 +288,7 @@ function finalizeBriefing(input: {
     input.cadence,
     fallbackTitle
   );
+  headline = rejectDuplicateHeadline(headline, fallbackTitle);
   headline = safeProse(headline);
 
   if (!headline || headline.length < 6) {
@@ -340,6 +353,21 @@ function finalizeBriefing(input: {
     );
     return null;
   }
+
+  logBriefingParseSuccess(
+    input.cadence,
+    input.mode,
+    sectionsFromDraft({
+      mode: input.mode,
+      headline: draft.headline,
+      whatChanged: draft.whatChanged,
+      whyYou: draft.whyYou,
+      whyItMatters: draft.whyItMatters,
+      watchItems: draft.watchItems,
+      positioning: draft.positioning,
+    }),
+    { filledFields: filled }
+  );
 
   logBriefing(input.cadence, input.mode, "parse succeeded");
   return draft;
@@ -452,6 +480,17 @@ function parseFromTags(
       reason: "no title or body after recovery",
       rawPreview: content,
     });
+    console.error(
+      "[WEEKLY_FALLBACK_TRIGGER]",
+      JSON.stringify({
+        cadence,
+        mode,
+        reason: "parse_failure",
+        detail: "no title or body after tag recovery",
+        foundTags,
+        missingTags: missing,
+      })
+    );
     return null;
   }
 

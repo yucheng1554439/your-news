@@ -1,10 +1,12 @@
+import "server-only";
+
 import type { NarrativeTheme } from "@/lib/editorial/narrative-clusters";
 import type { ClusterIntelligence } from "@/lib/types";
-import { selectDailyEventBriefing } from "@/lib/briefing/daily-selection";
 import {
   selectWeeklyPatternBriefing,
   type DailyExclusion,
 } from "@/lib/briefing/weekly-pattern-selection";
+import { BRIEFING_CORPUS_MIN } from "@/lib/briefing/briefing-corpus";
 import { logWeeklySelectionFromResult } from "@/lib/briefing/weekly-pipeline-log";
 import {
   ensureBriefingSelectionMaterial,
@@ -78,7 +80,8 @@ export function buildDailyExclusion(
 }
 
 /**
- * Daily → single EVENT (24h). Weekly → strategic PATTERN (clusters, higher abstraction).
+ * Daily and weekly → full LANDSCAPE (cadence corpus → all clusters → synthesis).
+ * For You sees the same corpus as Global; personalization is interpretation only.
  */
 export function selectWeeklyBriefingSelection(
   stories: Story[],
@@ -90,34 +93,30 @@ export function selectWeeklyBriefingSelection(
   const intelligence = options?.intelligence ?? null;
   const rescueCorpus = options?.corpus ?? stories;
 
-  let selection: WeeklyBriefingSelection;
+  const weeklyCorpus =
+    options?.corpus && options.corpus.length > 0 ? options.corpus : stories;
 
-  if (cadence === "daily") {
-    selection = selectDailyEventBriefing(stories, mode, profile, intelligence);
-  } else {
-    const weeklyCorpus =
-      options?.corpus && options.corpus.length > 0 ? options.corpus : stories;
-    selection = selectWeeklyPatternBriefing(
-      weeklyCorpus,
-      mode,
-      profile,
-      options?.dailyExclusion,
-      intelligence
-    );
-  }
+  const selection = selectWeeklyPatternBriefing(
+    weeklyCorpus,
+    mode,
+    profile,
+    cadence,
+    options?.dailyExclusion,
+    intelligence
+  );
 
-  const perThread = cadence === "daily" ? 1 : 40;
+  const rescueMin = BRIEFING_CORPUS_MIN[cadence];
   const { selection: ensured, rescueApplied } = ensureBriefingSelectionMaterial(
     selection,
     rescueCorpus,
     mode,
     profile,
-    perThread
+    rescueMin
   );
 
   logWeeklySelectionFromResult(
     ensured,
-    cadence === "weekly" ? (options?.corpus?.length ?? stories.length) : stories.length,
+    options?.corpus?.length ?? stories.length,
     rescueApplied
   );
 

@@ -3,13 +3,9 @@
 import { auth } from "@clerk/nextjs/server";
 import type { TopicPreferences } from "@/lib/personalization/topic-preferences";
 import {
-  topicPreferencesPayloadStats,
-  validateTopicPreferences,
-} from "@/lib/personalization/validate-topic-preferences";
-import {
-  getTopicPreferencesForUser,
-  patchUserProfile,
-} from "@/lib/user-profile/store";
+  getTopicPreferencesForUserId,
+  saveTopicPreferencesForUserId,
+} from "@/lib/services/topic-preferences";
 
 export type SaveTopicPreferencesResult =
   | { ok: true; topicPreferences: TopicPreferences }
@@ -17,12 +13,13 @@ export type SaveTopicPreferencesResult =
       ok: false;
       error: string;
       category: "validation" | "storage" | "auth" | "unknown";
+      code?: string;
     };
 
 export async function getTopicPreferencesAction(): Promise<TopicPreferences | null> {
   const { userId } = await auth();
   if (!userId) return null;
-  return getTopicPreferencesForUser(userId);
+  return getTopicPreferencesForUserId(userId);
 }
 
 export async function saveTopicPreferencesAction(
@@ -33,47 +30,9 @@ export async function saveTopicPreferencesAction(
     return { ok: false, error: "Not authenticated", category: "auth" };
   }
 
-  const validation = validateTopicPreferences(topicPreferences);
-  if (!validation.ok) {
-    console.warn(
-      "[USER_PROFILE] validation_rejected",
-      JSON.stringify({
-        userId,
-        code: validation.code,
-        message: validation.message,
-        ...topicPreferencesPayloadStats(topicPreferences),
-      })
-    );
-    return {
-      ok: false,
-      error: validation.message,
-      category: "validation",
-    };
-  }
-
-  const stats = topicPreferencesPayloadStats(validation.normalized);
-  console.log(
-    "[USER_PROFILE] save_topic_preferences",
-    JSON.stringify({
-      userId,
-      moreCount: stats.moreCount,
-      lessCount: stats.lessCount,
-      neverCount: stats.neverCount,
-      payloadSize: stats.payloadSize,
-    })
-  );
-
-  const result = await patchUserProfile(userId, {
-    topicPreferences: validation.normalized,
-  });
-
+  const result = await saveTopicPreferencesForUserId(userId, topicPreferences);
   if (!result.ok) {
-    return {
-      ok: false,
-      error: result.error,
-      category: result.category === "storage" ? "storage" : "unknown",
-    };
+    return { ...result, category: result.category };
   }
-
-  return { ok: true, topicPreferences: result.record.topicPreferences };
+  return result;
 }

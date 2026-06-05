@@ -32,6 +32,61 @@ export function lacksThesisVoice(headline: string): boolean {
   return true;
 }
 
+/** Detect repeated phrases, duplicate cluster labels, or "X And X" titles. */
+export function hasDuplicatedHeadlinePhrase(headline: string): boolean {
+  const h = headline.trim();
+  if (!h) return true;
+
+  const andParts = h.split(/\s+And\s+/i).map((p) => p.trim().toLowerCase());
+  if (andParts.length === 2 && andParts[0] === andParts[1]) return true;
+
+  const segments = h
+    .split(/\s+(?:And|&)\s+|,\s+/i)
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (segments.length >= 2) {
+    const seen = new Set<string>();
+    for (const segment of segments) {
+      if (seen.has(segment)) return true;
+      seen.add(segment);
+    }
+    for (let i = 0; i < segments.length; i++) {
+      for (let j = i + 1; j < segments.length; j++) {
+        if (segments[i] === segments[j]) return true;
+        if (
+          segments[i].length >= 8 &&
+          segments[j].length >= 8 &&
+          (segments[i].includes(segments[j]) || segments[j].includes(segments[i]))
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+
+  const tokens = h.toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length >= 4) {
+    const half = Math.floor(tokens.length / 2);
+    const first = tokens.slice(0, half).join(" ");
+    const second = tokens.slice(half).join(" ");
+    if (first === second) return true;
+  }
+
+  return false;
+}
+
+export function rejectDuplicateHeadline(
+  headline: string,
+  fallback: string
+): string {
+  const cleaned = headline.trim();
+  if (!cleaned || hasDuplicatedHeadlinePhrase(cleaned)) {
+    return fallback.trim();
+  }
+  return cleaned;
+}
+
 export function normalizeThesisHeadline(
   raw: string,
   mode: BriefingMode,
@@ -51,6 +106,10 @@ export function normalizeThesisHeadline(
     const slice = headline.slice(0, 92);
     const sp = slice.lastIndexOf(" ");
     headline = sp > 30 ? slice.slice(0, sp) : slice;
+  }
+
+  if (hasDuplicatedHeadlinePhrase(headline) && fallback) {
+    headline = fallback;
   }
 
   return headline;

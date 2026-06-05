@@ -2,8 +2,8 @@ import Link from "next/link";
 
 const VALUE_PROPS = [
   {
-    title: "Daily & weekly intelligence",
-    detail: "Event briefings and strategic patterns — not headline noise.",
+    title: "Personal intelligence",
+    detail: "For You and Global strategic briefings — not headline noise.",
   },
   {
     title: "Personal relevance",

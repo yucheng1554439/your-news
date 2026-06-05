@@ -1,29 +1,43 @@
-import type { SavedStoryRef } from "@/lib/saved-stories/metadata";
-import { resolveStoryFromPool } from "@/lib/story-resolve";
+import type { SavedStorySnapshot } from "@/lib/saved-stories/metadata";
 import type { Story } from "@/lib/types";
 
-/** Minimal story for cards when live feed no longer has the article. */
-export function savedRefToStory(ref: SavedStoryRef): Story {
+/** Render a permanent saved snapshot as a live Story shape. */
+export function snapshotToStory(snapshot: SavedStorySnapshot): Story {
   return {
-    slug: ref.slug,
-    headline: ref.headline,
-    summary: ref.headline,
-    whyItMatters: "",
-    category: ref.category,
-    tags: [ref.category],
+    slug: snapshot.slug,
+    headline: snapshot.headline,
+    summary: snapshot.summary?.trim() || snapshot.headline,
+    whyItMatters: snapshot.whyItMatters ?? "",
+    whyItMattersToYou: snapshot.whyItMattersToYou,
+    nextWatch: snapshot.nextWatch,
+    category: snapshot.category,
+    tags: snapshot.tags?.length ? snapshot.tags : [snapshot.category],
+    strategicTags: snapshot.strategicTags,
+    secondaryTags: snapshot.secondaryTags,
+    imageUrl: snapshot.imageUrl,
+    publishedAt: snapshot.publishedAt,
+    source: snapshot.source,
+    sourceUrl: snapshot.sourceUrl,
+    articleBody: snapshot.articleBody,
+    paywallDetected: snapshot.paywallDetected,
+    signalSummaryDisclaimer: snapshot.signalSummaryDisclaimer,
+    intelligenceGeneratedBy: snapshot.intelligenceGeneratedBy,
     importance: "medium",
-    imageUrl: ref.imageUrl,
-    publishedAt: ref.publishedAt,
-    source: ref.source,
     readTime: 5,
   };
 }
 
 export function resolveSavedStories(
-  saved: SavedStoryRef[],
+  saved: SavedStorySnapshot[],
   liveStories: Story[]
 ): Story[] {
-  return saved.map(
-    (ref) => resolveStoryFromPool(ref.slug, liveStories) ?? savedRefToStory(ref)
-  );
+  const liveBySlug = new Map(liveStories.map((s) => [s.slug, s]));
+
+  return saved.map((snapshot) => {
+    if (!snapshot.summary?.trim()) {
+      const live = liveBySlug.get(snapshot.slug);
+      if (live) return live;
+    }
+    return snapshotToStory(snapshot);
+  });
 }

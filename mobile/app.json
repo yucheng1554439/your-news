@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Your News",
+    "slug": "your-news",
+    "version": "0.1.0",
+    "scheme": "yournews",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yournews.app"
+    },
+    "android": {
+      "package": "com.yournews.app"
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "platforms": ["ios", "android"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:3000/api/v1",
+      "clerkPublishableKey": ""
+    }
+  }
+}

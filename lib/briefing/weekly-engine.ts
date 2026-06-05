@@ -3,7 +3,14 @@ import "server-only";
 import { ensureStoryArticleBody } from "@/lib/extraction/resolve-body";
 import { createMemoryStore } from "@/lib/cache/memory-store";
 import { weeklyBriefingCacheKey } from "@/lib/briefing/cache-key";
-import { getPeriodLabel } from "@/lib/briefing/cadence";
+import { getProfileBriefingFingerprint } from "@/lib/briefing/profile-fingerprint";
+import {
+  loadUserIntelligenceSnapshot,
+  readCachedBriefing,
+} from "@/lib/intelligence/user-intelligence-load";
+import {
+  getCoveragePeriodFromCorpus,
+} from "@/lib/briefing/cadence";
 import { buildProvenanceFromSelection } from "@/lib/briefing/provenance";
 import { logBriefing } from "@/lib/briefing/briefing-log";
 import {
@@ -11,6 +18,32 @@ import {
   writePersistedWeeklyBriefing,
 } from "@/lib/persistence/weekly-briefing-persist";
 import { readPlatformIntelligenceSnapshot } from "@/lib/persistence/intelligence-snapshot-persist";
+import { auditBriefingCorpusInput, briefingCorpusForCadence } from "@/lib/briefing/briefing-corpus";
+import {
+  briefingMeetsCorpusThreshold,
+  logBriefingProvenance,
+} from "@/lib/briefing/briefing-provenance-guard";
+import { rejectDuplicateHeadline } from "@/lib/briefing/thesis-title";
+import {
+  completeBriefingSections,
+  deriveGlobalWeeklyImpact,
+  deriveGlobalWeeklyOverview,
+  deriveWeeklyWatchItems,
+  synthesisAuditFromSelection,
+} from "@/lib/briefing/briefing-synthesis-fallback";
+import { deriveForYouWeeklyImpact } from "@/lib/briefing/for-you-impact";
+import { auditBriefingQuality } from "@/lib/briefing/briefing-quality";
+import {
+  classifyModelError,
+  logBriefingFallbackTrigger,
+  logBriefingGenerationStart,
+  logBriefingLlmSuccess,
+  logBriefingOutcome,
+  logBriefingVerifyFailure,
+  logBriefingVerifySuccess,
+  logPreLlmMetrics,
+  verifyBriefingOutput,
+} from "@/lib/briefing/briefing-generation-audit";
 import { auditDailyPipeline } from "@/lib/briefing/daily-pipeline-log";
 import { hasEnoughMaterialForBriefing } from "@/lib/briefing/source-material";
 import { enrichBriefingSelection } from "@/lib/briefing/enrich-selection";
@@ -28,7 +61,6 @@ import { deriveKeySignal } from "@/lib/briefing/key-signal";
 import { parseWeeklyBriefingResponse } from "@/lib/intelligence/parse-tagged-weekly";
 import {
   allStoriesFromSelection,
-  ensureBriefingSelectionMaterial,
   selectWeeklyBriefingSelection,
   stripBriefingDiagnostics,
   type BriefingSelectionOptions,
@@ -41,7 +73,7 @@ import type {
 import {
   briefingMatchesCadence,
   normalizeBriefing,
-} from "@/lib/briefing/types";
+} from "@/lib/briefing/shared/normalize";
 import {
   callAIJson,
   getAIProvider,
@@ -119,21 +151,68 @@ function finalizeBriefing(briefing: IntelligenceBriefing): IntelligenceBriefing 
   return stripBriefingDiagnostics(normalizeBriefing(briefing, briefing.cadence));
 }
 
+function attachCoveragePeriod(
+  briefing: IntelligenceBriefing,
+  corpus: Story[],
+  cadence: BriefingCadence
+): IntelligenceBriefing {
+  const pool = briefingCorpusForCadence(corpus, cadence);
+  const { periodLabel, coverageDateMs } = getCoveragePeriodFromCorpus(
+    pool,
+    cadence
+  );
+  return {
+    ...briefing,
+    periodLabel,
+    coverageDateMs,
+    weekLabel: periodLabel,
+  };
+}
+
 async function readLastSuccessfulBriefing(
   mode: BriefingMode,
   cadence: BriefingCadence,
   profile: OnboardingProfile | null,
-  selection: ReturnType<typeof selectWeeklyBriefingSelection>
+  selection: ReturnType<typeof selectWeeklyBriefingSelection>,
+  userId?: string,
+  corpusPoolSize?: number
 ): Promise<IntelligenceBriefing | null> {
   const platform = await readPlatformIntelligenceSnapshot();
-  const fromPlatform = platform?.briefings?.[cadence]?.[mode];
+  const userSnapshot = userId
+    ? await loadUserIntelligenceSnapshot(
+        userId,
+        getProfileBriefingFingerprint(profile)
+      )
+    : null;
+  const fromStore = readCachedBriefing(mode, cadence, platform, userSnapshot);
   if (
-    briefingMatchesCadence(fromPlatform, mode, cadence) &&
-    briefingIsUserSafe(fromPlatform!) &&
-    !briefingContainsRefusal(fromPlatform!)
+    fromStore &&
+    briefingMatchesCadence(fromStore, mode, cadence) &&
+    briefingIsUserSafe(fromStore) &&
+    !briefingContainsRefusal(fromStore)
   ) {
-    logBriefing(cadence, mode, "fallback to previous", "platform snapshot");
-    return finalizeBriefing(fromPlatform!);
+    const finalized = finalizeBriefing(fromStore);
+    if (
+      corpusPoolSize !== undefined &&
+      !briefingMeetsCorpusThreshold(cadence, finalized, corpusPoolSize)
+    ) {
+      logBriefingProvenance(
+        "snapshot-read-rejected",
+        cadence,
+        mode,
+        finalized,
+        corpusPoolSize,
+        { reason: "fallback previous below corpus threshold" }
+      );
+      return null;
+    }
+    logBriefing(
+      cadence,
+      mode,
+      "fallback to previous",
+      mode === "for-you" ? "user snapshot" : "platform snapshot"
+    );
+    return finalized;
   }
 
   const cacheKey = weeklyBriefingCacheKey(
@@ -144,6 +223,20 @@ async function readLastSuccessfulBriefing(
   );
   const cached = await readBriefingCache(cacheKey, mode, cadence);
   if (cached && briefingIsUserSafe(cached) && !briefingContainsRefusal(cached)) {
+    if (
+      corpusPoolSize !== undefined &&
+      !briefingMeetsCorpusThreshold(cadence, cached, corpusPoolSize)
+    ) {
+      logBriefingProvenance(
+        "snapshot-read-rejected",
+        cadence,
+        mode,
+        cached,
+        corpusPoolSize,
+        { reason: "fallback cache below corpus threshold" }
+      );
+      return null;
+    }
     logBriefing(cadence, mode, "fallback to previous", "persisted cache");
     return cached;
   }
@@ -165,7 +258,8 @@ function buildSyncBriefing(
   profile: OnboardingProfile | null,
   cadence: BriefingCadence,
   internalError?: string,
-  options?: BriefingSelectionOptions
+  options?: BriefingSelectionOptions,
+  fallbackReason?: Parameters<typeof logBriefingFallbackTrigger>[2]
 ): IntelligenceBriefing {
   const corpus = options?.corpus ?? stories;
   let selection = enrichBriefingSelection(
@@ -173,41 +267,82 @@ function buildSyncBriefing(
     { corpus }
   );
 
-  const ensured = ensureBriefingSelectionMaterial(
-    selection,
-    corpus,
-    mode,
-    profile,
-    cadence === "daily" ? 1 : 2
-  );
-  if (ensured.rescueApplied) {
-    selection = enrichBriefingSelection(ensured.selection, { corpus });
-  } else {
-    selection = ensured.selection;
-  }
-
   const pool = allStoriesFromSelection(selection);
+  auditBriefingCorpusInput(
+    selection,
+    pool,
+    briefingCorpusForCadence(corpus, cadence).length
+  );
+
+  logBriefingFallbackTrigger(
+    cadence,
+    mode,
+    fallbackReason ??
+      (internalError ? classifyModelError(internalError) : "unknown"),
+    internalError ?? "editorial synthesis — no LLM path",
+    {
+      synthesisStoryCount: pool.length,
+      clusterCount: selection.threads.length,
+    }
+  );
+
   const provenance = buildProvenanceFromSelection(selection);
+  const synthesisAudit = synthesisAuditFromSelection(selection);
+  console.log(
+    "[BRIEFING_SYNTHESIS_AUDIT]",
+    JSON.stringify({
+      cadence,
+      mode,
+      ...synthesisAudit,
+      storiesProcessed: pool.length,
+    })
+  );
+
   const summary = deriveFallbackSummary(pool, mode, profile, selection);
 
   if (internalError) {
     logInternalBriefingError(cadence, mode, internalError);
   }
 
+  const fallbackHeadline = deriveFallbackHeadline(
+    pool,
+    mode,
+    profile,
+    selection
+  );
+  const thesisFallback =
+    mode === "for-you" && selection
+      ? deriveFallbackHeadline(pool, mode, profile, selection)
+      : cadence === "weekly"
+        ? "A Strategic Pattern Emerged Across The Week"
+        : "One Material Change In The Last Day";
+
+  const coverage = getCoveragePeriodFromCorpus(
+    briefingCorpusForCadence(corpus, cadence),
+    cadence
+  );
+
   const briefing = finalizeBriefing({
     cadence,
     mode,
-    periodLabel: getPeriodLabel(cadence),
+    periodLabel: coverage.periodLabel,
+    coverageDateMs: coverage.coverageDateMs,
     generatedBy: "fallback",
-    headline: deriveFallbackHeadline(pool, mode, profile, selection),
+    headline: rejectDuplicateHeadline(fallbackHeadline, thesisFallback),
     summary,
-    whatChanged: summary.split("\n\n")[0],
+    whatChanged:
+      mode === "global"
+        ? deriveGlobalWeeklyOverview(selection)
+        : deriveFallbackSummary(pool, mode, profile, selection),
+    whyYou:
+      mode === "for-you"
+        ? deriveForYouWeeklyImpact(profile, selection, options?.intelligence)
+        : undefined,
+    whyItMatters:
+      mode === "global" ? deriveGlobalWeeklyImpact(selection) : undefined,
+    watchItems: deriveWeeklyWatchItems(selection, mode),
     keySignal: deriveKeySignal(pool),
     provenance,
-    decisions:
-      mode === "for-you"
-        ? "Review exposure and timing against the threads above before acting."
-        : undefined,
     invalidateIf:
       mode === "for-you"
         ? "Follow-up data that contradicts the lead facts in any thread."
@@ -216,7 +351,30 @@ function buildSyncBriefing(
   });
 
   briefing.summary = formatBriefingForDisplay(briefing);
-  return briefing;
+  const completed = completeBriefingSections(
+    briefing,
+    selection,
+    profile,
+    options?.intelligence
+  );
+  auditBriefingQuality(completed, selection, profile, options?.intelligence);
+  if (completed.generatedBy === "fallback") {
+    console.log(
+      `[BRIEFING] ${cadence}/${mode} — editorial synthesis (internal only)`
+    );
+  }
+  logBriefingProvenance(
+    "generation",
+    cadence,
+    mode,
+    completed,
+    briefingCorpusForCadence(corpus, cadence).length,
+    { generatedBy: "fallback" }
+  );
+  logBriefingOutcome("EDITORIAL_FALLBACK", cadence, mode, completed, {
+    trigger: fallbackReason ?? internalError,
+  });
+  return completed;
 }
 
 async function buildAIBriefing(
@@ -229,6 +387,7 @@ async function buildAIBriefing(
     "behavioralNote" | "intelligence" | "dailyExclusion" | "corpus"
   >
 ): Promise<{ briefing: IntelligenceBriefing | null; error?: string }> {
+  logBriefingGenerationStart(cadence, mode, true);
   logBriefing(cadence, mode, "generation started");
 
   const selectionOpts: BriefingSelectionOptions = {
@@ -249,20 +408,9 @@ async function buildAIBriefing(
     { corpus }
   );
 
-  const ensured = ensureBriefingSelectionMaterial(
-    selection,
-    corpus,
-    mode,
-    profile,
-    cadence === "daily" ? 1 : 2
-  );
-  if (ensured.rescueApplied) {
-    selection = enrichBriefingSelection(ensured.selection, { corpus });
-  } else {
-    selection = ensured.selection;
-  }
-
   const pool = allStoriesFromSelection(selection);
+  const corpusPoolSize = briefingCorpusForCadence(corpus, cadence).length;
+  auditBriefingCorpusInput(selection, pool, corpusPoolSize);
   const provenance = buildProvenanceFromSelection(selection);
 
   const withBodies = await Promise.all(
@@ -281,6 +429,20 @@ async function buildAIBriefing(
 
   const poolWithBodies = allStoriesFromSelection(selectionWithBodies);
 
+  auditBriefingCorpusInput(
+    selectionWithBodies,
+    poolWithBodies,
+    corpusPoolSize
+  );
+  console.log(
+    "[BRIEFING_SYNTHESIS_AUDIT]",
+    JSON.stringify({
+      cadence,
+      mode,
+      phase: "pre-llm",
+      ...synthesisAuditFromSelection(selectionWithBodies),
+    })
+  );
   if (cadence === "daily") {
     auditDailyPipeline(selectionWithBodies, poolWithBodies, mode);
   }
@@ -290,6 +452,13 @@ async function buildAIBriefing(
       poolWithBodies.length === 0
         ? `${cadence}: no stories selected`
         : `${cadence}: insufficient source text for briefing`;
+    logBriefingFallbackTrigger(
+      cadence,
+      mode,
+      "insufficient_material",
+      reason,
+      { storyCount: poolWithBodies.length }
+    );
     logBriefing(cadence, mode, "generation skipped", reason);
     logInternalBriefingError(cadence, mode, reason);
     return { briefing: null, error: reason };
@@ -305,12 +474,38 @@ async function buildAIBriefing(
     ));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Prompt build failed";
+    logBriefingFallbackTrigger(
+      cadence,
+      mode,
+      "prompt_build_failed",
+      message
+    );
     logBriefing(cadence, mode, "generation skipped", message);
     return { briefing: null, error: message };
   }
 
+  const sourceCount = new Set(
+    poolWithBodies.map((s) => (s.source || "Unknown").trim())
+  ).size;
+
+  logPreLlmMetrics({
+    cadence,
+    mode,
+    promptLength: user.length,
+    systemPromptLength: system.length,
+    clusterCount: selectionWithBodies.threads.length,
+    storyCount: poolWithBodies.length,
+    sourceCount,
+    corpusPoolSize,
+    clusterIds: selectionWithBodies.threads.map((t) => t.clusterId),
+  });
+
   const provider = getAIProvider();
-  const periodLabel = getPeriodLabel(cadence);
+  const coverage = getCoveragePeriodFromCorpus(
+    briefingCorpusForCadence(options?.corpus ?? stories, cadence),
+    cadence
+  );
+  const periodLabel = coverage.periodLabel;
   const maxTokens = mode === "for-you" ? 1000 : 780;
 
   const result = await callAIJson({
@@ -338,6 +533,11 @@ async function buildAIBriefing(
   });
 
   if (!result.ok) {
+    const reason = classifyModelError(result.error);
+    logBriefingFallbackTrigger(cadence, mode, reason, result.error, {
+      provider,
+      promptLength: user.length,
+    });
     logBriefing(cadence, mode, "generation failed", result.error);
     console.warn(
       `[${provider.toUpperCase()}] Briefing fallback for ${cadence}/${mode} — ${result.error}`
@@ -345,28 +545,74 @@ async function buildAIBriefing(
     return { briefing: null, error: result.error };
   }
 
-  const briefing = finalizeBriefing({
+  logBriefingLlmSuccess(cadence, mode, {
+    provider,
+    promptLength: user.length,
+    responseHeadline: result.data.headline?.slice(0, 80),
+  });
+
+  let briefing = finalizeBriefing({
     ...result.data,
+    periodLabel: coverage.periodLabel,
+    coverageDateMs: coverage.coverageDateMs,
     provenance,
     generatedAt: Date.now(),
   });
 
-  if (briefingContainsRefusal(briefing)) {
-    logBriefing(cadence, mode, "generation refused", "model decline in briefing");
+  briefing = completeBriefingSections(
+    briefing,
+    selectionWithBodies,
+    profile,
+    options?.intelligence
+  );
+  auditBriefingQuality(
+    briefing,
+    selectionWithBodies,
+    profile,
+    options?.intelligence
+  );
+
+  const verification = verifyBriefingOutput(
+    briefing,
+    mode,
+    cadence,
+    corpusPoolSize,
+    poolWithBodies.length
+  );
+
+  if (!verification.ok) {
+    logBriefingVerifyFailure(
+      cadence,
+      mode,
+      verification.failedRule ?? "unknown",
+      verification.reason ?? "validation_failure",
+      verification.detail,
+      { synthesisStoryCount: poolWithBodies.length }
+    );
+    logBriefingFallbackTrigger(
+      cadence,
+      mode,
+      verification.reason ?? "validation_failure",
+      verification.detail ?? verification.failedRule ?? "verification failed",
+      { failedRule: verification.failedRule }
+    );
     return {
       briefing: null,
-      error: "Model declined to synthesize (insufficient context or refusal)",
+      error: verification.detail ?? `${cadence} briefing failed verification`,
     };
   }
 
-  if (!briefingMatchesCadence(briefing, mode, cadence)) {
-    return {
-      briefing: null,
-      error: `${provider} returned wrong briefing mode/cadence`,
-    };
-  }
-
+  logBriefingVerifySuccess(cadence, mode, briefing, poolWithBodies.length);
   logBriefing(cadence, mode, "generation succeeded");
+  logBriefingProvenance(
+    "generation",
+    cadence,
+    mode,
+    briefing,
+    corpusPoolSize,
+    { generatedBy: "ai" }
+  );
+  logBriefingOutcome("LLM_GENERATED", cadence, mode, briefing);
   return { briefing };
 }
 
@@ -378,6 +624,8 @@ export type ResolveWeeklyBriefingOptions = {
   dailyExclusion?: BriefingSelectionOptions["dailyExclusion"];
   /** Full editorial pool — global briefings cluster against this. */
   corpus?: Story[];
+  /** Required for for-you snapshot reads — prevents cross-user briefing leakage. */
+  userId?: string;
 };
 
 export async function resolveBriefing(
@@ -406,25 +654,84 @@ export async function resolveBriefing(
     cadence
   );
 
+  const corpus = options?.corpus ?? stories;
+  const corpusPoolSize = briefingCorpusForCadence(corpus, cadence).length;
+
   if (!options?.force) {
+    logBriefingGenerationStart(cadence, mode, false);
     const platform = await readPlatformIntelligenceSnapshot();
-    const platformBriefing = platform?.briefings?.[cadence]?.[mode];
-    if (briefingMatchesCadence(platformBriefing, mode, cadence)) {
-      if (briefingContainsRefusal(platformBriefing!)) {
+    const userSnapshot =
+      mode === "for-you" && options?.userId
+        ? await loadUserIntelligenceSnapshot(
+            options.userId,
+            getProfileBriefingFingerprint(profile)
+          )
+        : null;
+    const cachedBriefing = readCachedBriefing(
+      mode,
+      cadence,
+      platform,
+      userSnapshot
+    );
+    if (briefingMatchesCadence(cachedBriefing, mode, cadence)) {
+      if (briefingContainsRefusal(cachedBriefing!)) {
         logBriefing(cadence, mode, "snapshot rejected", "cached model refusal");
-      } else if (briefingIsUserSafe(platformBriefing!)) {
-        logBriefing(cadence, mode, "snapshot loaded", "platform");
-        return finalizeBriefing(platformBriefing!);
+      } else if (briefingIsUserSafe(cachedBriefing!)) {
+        const finalized = finalizeBriefing(cachedBriefing!);
+        if (briefingMeetsCorpusThreshold(cadence, finalized, corpusPoolSize)) {
+          logBriefingProvenance(
+            "snapshot-read",
+            cadence,
+            mode,
+            finalized,
+            corpusPoolSize
+          );
+          logBriefing(
+            cadence,
+            mode,
+            "snapshot loaded",
+            mode === "for-you" ? "user" : "platform"
+          );
+          logBriefingOutcome("SNAPSHOT_CACHED", cadence, mode, finalized);
+          return finalized;
+        }
+        logBriefingProvenance(
+          "snapshot-read-rejected",
+          cadence,
+          mode,
+          finalized,
+          corpusPoolSize,
+          { reason: "cached briefing below corpus threshold" }
+        );
       } else {
         logBriefing(cadence, mode, "snapshot rejected", "invalid briefing content");
       }
     }
 
     const cached = await readBriefingCache(cacheKey, mode, cadence);
-    if (cached && briefingIsUserSafe(cached)) return cached;
+    if (
+      cached &&
+      briefingIsUserSafe(cached) &&
+      briefingMeetsCorpusThreshold(cadence, cached, corpusPoolSize)
+    ) {
+      logBriefingOutcome("SNAPSHOT_CACHED", cadence, mode, cached, {
+        source: "briefing_cache",
+      });
+      return cached;
+    }
 
-    return buildSyncBriefing(stories, mode, profile, cadence, undefined, selectionOpts);
+    return buildSyncBriefing(
+      stories,
+      mode,
+      profile,
+      cadence,
+      undefined,
+      selectionOpts,
+      "unknown"
+    );
   }
+
+  logBriefingGenerationStart(cadence, mode, true);
 
   if (!isAIConfigured()) {
     const provider = getAIProvider();
@@ -436,7 +743,8 @@ export async function resolveBriefing(
       profile,
       cadence,
       `${keyName} is not configured`,
-      selectionOpts
+      selectionOpts,
+      "ai_not_configured"
     );
     await writeBriefingCache(cacheKey, offline);
     return offline;
@@ -454,6 +762,15 @@ export async function resolveBriefing(
     return ai;
   }
 
+  if (ai && !briefingIsUserSafe(ai)) {
+    logBriefingFallbackTrigger(
+      cadence,
+      mode,
+      "user_unsafe",
+      "AI briefing failed user-safe check after verification"
+    );
+  }
+
   const provider = getAIProvider();
   const lastError =
     aiError ??
@@ -467,9 +784,14 @@ export async function resolveBriefing(
     mode,
     cadence,
     profile,
-    selection
+    selection,
+    options?.userId,
+    corpusPoolSize
   );
   if (previous) {
+    logBriefingOutcome("PREVIOUS_FALLBACK", cadence, mode, previous, {
+      reason: lastError,
+    });
     return previous;
   }
 
@@ -480,7 +802,8 @@ export async function resolveBriefing(
       profile,
       cadence,
       lastError,
-      selectionOpts
+      selectionOpts,
+      classifyModelError(lastError)
     );
   }
 
@@ -490,7 +813,8 @@ export async function resolveBriefing(
     profile,
     cadence,
     lastError,
-    selectionOpts
+    selectionOpts,
+    aiError ? classifyModelError(aiError) : "unknown"
   );
 }
 

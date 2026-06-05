@@ -8,6 +8,7 @@ import {
   WEEKLY_GLOBAL,
   WEEKLY_ADVISOR_RULES,
   WRITING_RULES,
+  WEEKLY_SYNTHESIS_RULES,
 } from "@/lib/intelligence/section-purposes";
 import {
   PERSONAL_ADVISOR_MANDATE,
@@ -93,15 +94,31 @@ Source articles (ground every claim in this set):
 ${buildStoryDigest(thread.stories)}`;
 }
 
-function buildDailyDigest(selection: WeeklyBriefingSelection): string {
-  const thread = selection.threads[0]!;
-  return `TODAY'S EVENT (last 24 hours — do NOT write the weekly pattern):
-${thread.label}
+function buildGlobalLandscapeDigest(
+  selection: WeeklyBriefingSelection,
+  cadenceLabel: string
+): string {
+  const allStories = selection.threads.flatMap((t) => t.stories);
+  const uniqueSlugs = new Set(allStories.map((s) => s.slug));
+
+  const threadDigests = selection.threads
+    .map((thread, idx) => {
+      return `NARRATIVE CLUSTER ${idx + 1} — ${thread.label}
 ${buildClusterDigest(thread)}`;
+    })
+    .join("\n\n");
+
+  return `${cadenceLabel.toUpperCase()} GLOBAL — FULL DESK LANDSCAPE
+
+You receive the COMPLETE ${cadenceLabel} corpus (${uniqueSlugs.size} unique articles, ${selection.threads.length} narrative clusters).
+Synthesize across ALL clusters — never write from a single headline in isolation.
+
+${threadDigests}`;
 }
 
-function buildForYouWeeklyLandscapeDigest(
-  selection: WeeklyBriefingSelection
+function buildForYouLandscapeDigest(
+  selection: WeeklyBriefingSelection,
+  cadenceLabel: string
 ): string {
   const allStories = selection.threads.flatMap((t) => t.stories);
   const uniqueSlugs = new Set(allStories.map((s) => s.slug));
@@ -129,55 +146,45 @@ ${buildClusterDigest(thread)}`;
     })
     .join("\n\n");
 
-  return `FOR YOU WEEKLY — FULL LANDSCAPE FIRST, THEN PRIORITIZE
+  return `FOR YOU ${cadenceLabel.toUpperCase()} — FULL LANDSCAPE FIRST, THEN PRIORITIZE
 
-You have the COMPLETE weekly information landscape (${uniqueSlugs.size} unique articles in synthesis, ${totalClusterArticles} total cluster articles, ${selection.threads.length} narrative clusters).
+You have the COMPLETE ${cadenceLabel} information landscape (${uniqueSlugs.size} unique articles in synthesis, ${totalClusterArticles} total cluster articles, ${selection.threads.length} narrative clusters).
 Global and For You see the same source material. Your job is INTERPRETATION:
-answer "Of everything that happened this week, what matters most to THIS reader?"
+answer "Of everything that happened, what matters most to THIS reader?"
 
 READER PRIORITY GUIDE (conclusions only — do NOT omit competing narratives from your reasoning):
 ${priorityGuide}
 
 SYNTHESIS RULES:
-- WHAT_CHANGED: name 2–4 parallel strategic patterns across the FULL landscape (not one headline).
-- WHY_YOU: explain which patterns matter most for this reader and why others are secondary.
-- Do NOT write as if only the top-scored cluster existed — show you saw the full week.
+- WHAT_CHANGED: cover 2–4 parallel developments across the FULL landscape (not one headline).
+- WHY_YOU: explain which threads matter most for this reader and why others are secondary.
+- Do NOT write as if only the top-scored cluster existed — show you saw the full desk.
 - Filter conclusions, not facts. Competing explanations must be acknowledged.
 
 ${threadDigests}`;
 }
 
-function buildWeeklyPatternDigest(selection: WeeklyBriefingSelection): string {
-  if (selection.mode === "for-you" && selection.cadence === "weekly") {
-    return buildForYouWeeklyLandscapeDigest(selection);
+function buildBriefingLandscapeDigest(
+  selection: WeeklyBriefingSelection
+): string {
+  const cadenceLabel = selection.cadence === "daily" ? "daily" : "weekly";
+
+  if (selection.mode === "for-you") {
+    return buildForYouLandscapeDigest(selection, cadenceLabel);
   }
 
-  if (selection.mode === "global" && selection.threads.length === 1) {
-    const thread = selection.threads[0]!;
-    return `WEEKLY STRATEGIC PATTERN (synthesize the arc across the week — NOT today's single headline):
-${thread.label}
-${buildClusterDigest(thread)}
-
-Identify 2–4 strategic objectives moving in parallel this week (numbered in WHAT_CHANGED).`;
-  }
-
-  return selection.threads
-    .map((thread, idx) => {
-      return `PATTERN THREAD ${idx + 1} — ${thread.label}
-${buildClusterDigest(thread)}`;
-    })
-    .join("\n\n");
+  return buildGlobalLandscapeDigest(selection, cadenceLabel);
 }
 
 const SYSTEM: Record<`${BriefingCadence}-${BriefingMode}`, string> = {
   "daily-global":
-    "You write a DAILY Global event brief: what changed in the world in the last 24 hours. One event. Not the weekly pattern.",
+    "You write a DAILY Global brief from the FULL last-24h desk landscape — all clusters and articles provided. Synthesize the day's developments; never reduce to one headline.",
   "daily-for-you":
-    "You write a DAILY For You event brief: what changed in the last 24 hours that matters to this specific reader. One event.",
+    "You write a DAILY For You brief from the SAME full daily corpus Global sees. Prioritize for this reader; do not remove source material from your reasoning.",
   "weekly-global":
-    "You write a WEEKLY Global pattern brief: what strategic pattern emerged this week. Higher abstraction than any single headline.",
+    "You write a WEEKLY Global pattern brief from the FULL weekly corpus — all clusters provided. Higher abstraction than any single headline.",
   "weekly-for-you":
-    "You write a WEEKLY For You pattern brief. You receive the FULL weekly corpus clustered into narrative threads — the same landscape Global sees. Prioritize and interpret for this reader; do not pretend only their top interests happened.",
+    "You write a WEEKLY For You pattern brief from the FULL weekly corpus clustered into narrative threads — the same landscape Global sees. Prioritize and interpret; do not pretend only top interests happened.",
 };
 
 export function buildWeeklyBriefingPrompt(
@@ -185,7 +192,7 @@ export function buildWeeklyBriefingPrompt(
   profile: OnboardingProfile | null,
   behavioralNote?: string
 ): { system: string; user: string } {
-  const { mode, cadence, lens } = selection;
+  const { mode, cadence } = selection;
   const key = `${cadence}-${mode}` as const;
   const allStories = selection.threads.flatMap((t) => t.stories);
 
@@ -197,10 +204,7 @@ export function buildWeeklyBriefingPrompt(
       ? `${PERSONAL_ADVISOR_MANDATE}\n${buildCareerAdvisorLens(profile)}`
       : "";
 
-  const material =
-    lens === "event"
-      ? buildDailyDigest(selection)
-      : buildWeeklyPatternDigest(selection);
+  const material = buildBriefingLandscapeDigest(selection);
 
   if (allStories.length === 0) {
     console.warn(
@@ -214,17 +218,18 @@ export function buildWeeklyBriefingPrompt(
   const cadenceRules =
     cadence === "daily"
       ? `DAILY RULES:
-- Answer: "What changed in the last 24 hours?"
-- WHAT_CHANGED = the specific new announcement, policy, earnings, or geopolitical move (facts only).
+- Answer: "What changed in the last 24 hours?" using the FULL daily landscape below.
+- WHAT_CHANGED = 2–4 parallel developments across clusters (not one headline).
 - Do NOT describe a multi-day strategy or weekly arc.
-- Do NOT repeat language suitable for a weekly pattern brief.
+- Ground every claim in the provided articles — you received ${allStories.length} stories across ${selection.threads.length} narratives.
 ${DAILY_THESIS_EXTRA}`
       : `WEEKLY RULES:
 - Answer: "What pattern emerged this week?"
-- WHAT_CHANGED = the week's strategic pattern (e.g. three parallel objectives), NOT one IPO or headline.
-- Name the pattern (capital strategy, policy shift) — not the triggering event.
-- Higher abstraction than the daily brief.
-${mode === "for-you" ? "- For You: prioritize which patterns matter to THIS reader after surveying ALL clusters below." : ""}
+- WHAT_CHANGED = cross-cluster strategic pattern (2–4 parallel threads) — NOT one IPO or company headline.
+- WHY_YOU must name engineering/hiring/infrastructure/vendor/capital implications for THIS reader.
+- Name relationships between clusters — capital, policy, technology, supply chain links.
+- Higher abstraction than daily; still grounded in provided articles.
+${mode === "for-you" ? "- For You: prioritize which patterns matter to THIS reader; NEVER say 'no direct impact' when 5+ relevant stories exist." : ""}
 ${WEEKLY_THESIS_EXTRA}`;
 
   const responseTags =
@@ -239,6 +244,8 @@ Fill WHY_IT_MATTERS. Leave WHY_YOU and INVALIDATE empty.`;
   return {
     system: SYSTEM[key],
     user: `${WEEKLY_ADVISOR_RULES}
+
+${WEEKLY_SYNTHESIS_RULES}
 
 ${WRITING_RULES}
 

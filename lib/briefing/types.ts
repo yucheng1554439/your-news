@@ -1,7 +1,6 @@
 import type { IntelligenceGeneratedBy } from "@/lib/intelligence/types";
-import {
-  stripBriefingDiagnostics,
-} from "@/lib/briefing/weekly-rescue";
+
+export type { IntelligenceGeneratedBy };
 
 export type BriefingCadence = "daily" | "weekly";
 export type BriefingMode = "for-you" | "global";
@@ -15,12 +14,22 @@ export type BriefingProvenance = {
   sourceCount: number;
   /** Distinct outlet names, tier-1 first */
   sources: string[];
+  /** Articles passed into synthesis / LLM */
+  storiesProcessed?: number;
+  /** Distinct sources in synthesis material */
+  sourcesProcessed?: number;
+  /** Narrative clusters in synthesis material */
+  narrativesProcessed?: number;
+  /** Active desk signals represented in synthesis corpus */
+  signalsProcessed?: number;
 };
 
 export type IntelligenceBriefing = {
   cadence: BriefingCadence;
   mode: BriefingMode;
   periodLabel: string;
+  /** UTC midnight ms for primary coverage day (from corpus, not refresh time). */
+  coverageDateMs?: number;
   headline: string;
   /** Legacy flat body — prefer structured sections when present */
   summary: string;
@@ -47,47 +56,13 @@ export type IntelligenceBriefing = {
 /** @deprecated Use IntelligenceBriefing */
 export type WeeklyBriefing = IntelligenceBriefing;
 
+/** For You + Global intelligence briefings exposed to clients. */
 export type BriefingBundle = Partial<
   Record<BriefingMode, IntelligenceBriefing>
 >;
 
+/** Internal persistence shape — only `daily` is populated after refresh. */
 export type CadenceBriefings = {
   daily: BriefingBundle;
   weekly: BriefingBundle;
 };
-
-export function normalizeBriefing(
-  briefing: IntelligenceBriefing,
-  defaultCadence: BriefingCadence = "weekly"
-): IntelligenceBriefing {
-  const cadence = briefing.cadence ?? defaultCadence;
-  const periodLabel =
-    briefing.periodLabel ?? briefing.weekLabel ?? "";
-
-  return stripBriefingDiagnostics({
-    ...briefing,
-    cadence,
-    mode: briefing.mode ?? "global",
-    periodLabel,
-    weekLabel: periodLabel,
-    provenance: briefing.provenance ?? {
-      articleCount: 0,
-      narrativeCount: 0,
-      sourceCount: 0,
-      sources: [],
-    },
-    summary: briefing.summary ?? "",
-    keySignal: briefing.keySignal ?? "",
-    headline: briefing.headline ?? "",
-  });
-}
-
-export function briefingMatchesCadence(
-  briefing: IntelligenceBriefing | undefined,
-  mode: BriefingMode,
-  cadence: BriefingCadence
-): boolean {
-  if (!briefing || briefing.mode !== mode) return false;
-  const bCadence = briefing.cadence ?? "weekly";
-  return bCadence === cadence;
-}

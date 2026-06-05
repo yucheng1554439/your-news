@@ -5,7 +5,6 @@ import {
   fetchStoryIntelligence,
   generateStoryIntelligenceIfMissing,
 } from "@/app/actions/intelligence";
-import { AIStatusBanner } from "@/components/AIStatusBanner";
 import { StoryIntelligence } from "@/components/StoryIntelligence";
 import { hasDisplayableIntelligence } from "@/lib/intelligence/display";
 import { verifyIntelligenceMatch } from "@/lib/intelligence/provenance-match";
@@ -123,25 +122,10 @@ export function StoryIntelligenceAsync({
 
   if (ready || (hasDisplayableIntelligence(story) && !loading)) {
     return (
-      <>
-        {(story.intelligenceGeneratedBy === "fallback" ||
-          story.intelligenceGeneratedBy === "metadata") && (
-          <div className="mt-10">
-            <AIStatusBanner
-              generatedBy={
-                story.intelligenceGeneratedBy === "metadata"
-                  ? "metadata"
-                  : "fallback"
-              }
-              context="story"
-            />
-          </div>
-        )}
-        <StoryIntelligence
-          story={story}
-          whyItMattersToYou={story.whyItMattersToYou}
-        />
-      </>
+      <StoryIntelligence
+        story={story}
+        whyItMattersToYou={story.whyItMattersToYou}
+      />
     );
   }
 
@@ -149,5 +133,10 @@ export function StoryIntelligenceAsync({
     return <GeneratingStoryIntelligence story={story} />;
   }
 
-  return <GeneratingStoryIntelligence story={story} />;
+  return (
+    <StoryIntelligence
+      story={story}
+      whyItMattersToYou={story.whyItMattersToYou}
+    />
+  );
 }

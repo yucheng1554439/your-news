@@ -1,5 +1,6 @@
 "use server";
 
+import { auth } from "@clerk/nextjs/server";
 import {
   resolveBriefing,
   type BriefingCadence,
@@ -11,9 +12,13 @@ export async function fetchBriefing(
   stories: Story[],
   mode: BriefingMode,
   profile: OnboardingProfile | null,
-  cadence: BriefingCadence = "weekly"
+  cadence: BriefingCadence = "daily"
 ) {
-  return resolveBriefing(stories, mode, profile, { cadence });
+  const { userId } = await auth();
+  return resolveBriefing(stories, mode, profile, {
+    cadence,
+    userId: mode === "for-you" ? (userId ?? undefined) : undefined,
+  });
 }
 
 /** @deprecated Use fetchBriefing */

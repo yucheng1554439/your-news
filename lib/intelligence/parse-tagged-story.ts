@@ -8,7 +8,9 @@ import {
   splitProseBlocks,
 } from "@/lib/intelligence/provider/extract-tags";
 import type { StoryIntelligencePackage } from "@/lib/intelligence/types";
+import { stripArticleArtifacts } from "@/lib/intelligence/story-intelligence-quality";
 import { sanitizeGroundedProse } from "@/lib/intelligence/writing-guardrails";
+import { sectionsTooSimilar } from "@/lib/briefing/shared/section-similarity";
 
 const BRIEFING_ALIASES = ["THE_BRIEFING", "BRIEFING", "TITLE", "SUMMARY"];
 const WHY_ALIASES = ["WHY_IT_MATTERS", "WHY_THIS_MATTERS", "STRATEGIC_IMPORTANCE"];
@@ -18,6 +20,7 @@ const PERSONAL_ALIASES = [
   "FOR_YOU",
   "READER_IMPACT",
 ];
+const WATCH_ALIASES = ["WHAT_TO_WATCH", "NEXT_WATCH", "WATCH", "MONITOR"];
 
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
@@ -41,6 +44,7 @@ function parseFromJson(
       theBriefing,
       whyItMatters,
       whyItMattersToYou: req("whyItMattersToYou"),
+      nextWatch: req("nextWatch") || req("whatToWatch"),
       profileFingerprint,
     });
   } catch {
@@ -52,6 +56,7 @@ function buildPackage(input: {
   theBriefing: string;
   whyItMatters: string;
   whyItMattersToYou?: string;
+  nextWatch?: string;
   profileFingerprint: string;
 }): StoryIntelligencePackage | null {
   let theBriefing = input.theBriefing.trim();
@@ -78,25 +83,27 @@ function buildPackage(input: {
     }
   }
 
-  theBriefing = sanitizeGroundedProse(theBriefing);
-  whyItMatters = sanitizeGroundedProse(whyItMatters);
+  theBriefing = stripArticleArtifacts(sanitizeGroundedProse(theBriefing));
+  whyItMatters = stripArticleArtifacts(sanitizeGroundedProse(whyItMatters));
 
-  if (!theBriefing || theBriefing.length < 16) return null;
-  if (!whyItMatters || whyItMatters.length < 20) {
-    if (theBriefing.length >= 48) {
-      whyItMatters = theBriefing;
-    } else {
-      return null;
-    }
+  if (!theBriefing || !whyItMatters) return null;
+
+  if (theBriefing === whyItMatters || sectionsTooSimilar(theBriefing, whyItMatters, 0.7)) {
+    return null;
   }
+
+  const nextWatch = input.nextWatch?.trim()
+    ? clip(sanitizeGroundedProse(input.nextWatch.trim()), 420)
+    : undefined;
 
   return {
     theBriefing: clip(theBriefing, 400),
     whyItMatters: clip(whyItMatters, 480),
     whyItMattersToYou:
-      whyItMattersToYou && whyItMattersToYou.length >= 16
-        ? clip(sanitizeGroundedProse(whyItMattersToYou), 520)
+      input.whyItMattersToYou && input.whyItMattersToYou.length >= 16
+        ? clip(sanitizeGroundedProse(input.whyItMattersToYou), 520)
         : undefined,
+    nextWatch,
     generatedAt: new Date().toISOString(),
     profileFingerprint: input.profileFingerprint,
     generatedBy: intelligenceGeneratedByProvider(),
@@ -112,6 +119,7 @@ function parseFromTags(
   let theBriefing = pickTaggedSection(sections, BRIEFING_ALIASES) ?? "";
   let whyItMatters = pickTaggedSection(sections, WHY_ALIASES) ?? "";
   const whyItMattersToYou = pickTaggedSection(sections, PERSONAL_ALIASES);
+  const nextWatch = pickTaggedSection(sections, WATCH_ALIASES);
 
   if (!theBriefing && !whyItMatters) {
     const blocks = splitProseBlocks(content, 32);
@@ -127,6 +135,7 @@ function parseFromTags(
     theBriefing,
     whyItMatters,
     whyItMattersToYou,
+    nextWatch,
     profileFingerprint,
   });
 }
