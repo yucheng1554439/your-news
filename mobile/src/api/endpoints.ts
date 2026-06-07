@@ -68,6 +68,14 @@ export async function fetchSignals(token: string) {
   return apiFetch<SignalsPayload>("/signals", { token });
 }
 
+/** Permanently delete account — Apple Guideline 5.1.1(v). */
+export async function deleteAccount(token: string) {
+  return apiFetch<{ ok: true; deleted: true }>("/profile/account", {
+    method: "DELETE",
+    token,
+  });
+}
+
 /** Regenerates briefings, signals inputs, rankings, and story ingestion (same as web). */
 export async function refreshIntelligence(token: string) {
   return apiFetch<IntelligenceRefreshPayload>("/intelligence/refresh", {

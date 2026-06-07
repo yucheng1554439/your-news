@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { Navbar } from "@/components/Navbar";
 import { UserIntelligenceCard } from "@/components/UserIntelligenceCard";
+import {
+  AccountLegalSection,
+  DeleteAccountSection,
+} from "@/components/settings/AccountLegalSection";
 import { Button } from "@/components/ui/button";
 import { getOnboardingProfile, resetOnboarding } from "@/lib/onboarding";
 import { getTopicPreferencesAction } from "@/app/actions/user-profile";
@@ -138,6 +142,10 @@ function SettingsContent({ userId }: { userId: string }) {
       </div>
 
       <UserIntelligenceCard />
+
+      <AccountLegalSection />
+
+      <DeleteAccountSection />
 
       <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-6">
         <h2 className="font-serif text-lg text-white">Saved stories</h2>

@@ -1,6 +1,7 @@
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
+import { LegalLinksSection } from "@/components/auth/AuthLegalFooter";
 import { colors, radii, spacing, typography } from "@/theme";
 
 export default function SettingsScreen() {
@@ -42,6 +43,30 @@ export default function SettingsScreen() {
         label="Topic preferences"
         subtitle="Control what appears in your feed"
         onPress={() => router.push("/(app)/settings/topics")}
+      />
+
+      <View
+        style={{
+          padding: spacing.md,
+          borderRadius: radii.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+          gap: spacing.sm,
+          marginTop: spacing.sm,
+        }}
+      >
+        <Text style={{ ...typography.headline, color: colors.text, fontSize: 16 }}>
+          Legal & support
+        </Text>
+        <LegalLinksSection />
+      </View>
+
+      <SettingsRow
+        label="Delete account"
+        subtitle="Permanently remove your data"
+        destructive
+        onPress={() => router.push("/(app)/settings/delete-account")}
       />
       <SettingsRow
         label="Sign out"

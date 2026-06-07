@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/your-org/your-news/tree/main/docs
+    about: Read architecture, API, and deployment guides
+  - name: Security issue
+    url: mailto:security@yournews.app
+    about: Report a security vulnerability privately

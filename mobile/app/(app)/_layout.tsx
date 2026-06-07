@@ -27,6 +27,10 @@ export default function AppLayout() {
         name="settings/intelligence"
         options={{ title: "Intelligence Profile" }}
       />
+      <Stack.Screen
+        name="settings/delete-account"
+        options={{ title: "Delete account" }}
+      />
     </Stack>
   );
 }

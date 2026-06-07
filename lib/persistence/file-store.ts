@@ -42,3 +42,13 @@ export async function fileSet<T>(key: string, value: T): Promise<boolean> {
     return false;
   }
 }
+
+export async function fileDel(key: string): Promise<boolean> {
+  if (!isFilePersistenceEnabled()) return false;
+  try {
+    await unlink(filePath(key));
+    return true;
+  } catch {
+    return false;
+  }
+}

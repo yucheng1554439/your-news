@@ -13,6 +13,8 @@ import {
   authInputStyle,
   authScreenStyle,
 } from "@/components/auth/auth-ui";
+import { AppleSignInButton } from "@/components/auth/AppleSignInButton";
+import { AuthLegalFooter } from "@/components/auth/AuthLegalFooter";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 export default function SignUpScreen() {
@@ -57,6 +59,8 @@ export default function SignUpScreen() {
       <Text style={{ color: "#fff", fontSize: 28, fontWeight: "600" }}>
         Create account
       </Text>
+
+      <AppleSignInButton />
 
       <GoogleSignInButton label="Sign up with Google" />
 
@@ -107,6 +111,7 @@ export default function SignUpScreen() {
           Already have an account?
         </Text>
       </Link>
+      <AuthLegalFooter mode="sign-up" />
     </View>
   );
 }

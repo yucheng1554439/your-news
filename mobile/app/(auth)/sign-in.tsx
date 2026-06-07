@@ -13,6 +13,8 @@ import {
   authInputStyle,
   authScreenStyle,
 } from "@/components/auth/auth-ui";
+import { AppleSignInButton } from "@/components/auth/AppleSignInButton";
+import { AuthLegalFooter } from "@/components/auth/AuthLegalFooter";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 export default function SignInScreen() {
@@ -51,6 +53,8 @@ export default function SignInScreen() {
       <Text style={{ color: "#71717a", fontSize: 14 }}>
         Strategic intelligence, personalized for you.
       </Text>
+
+      <AppleSignInButton />
 
       <GoogleSignInButton />
 
@@ -101,6 +105,7 @@ export default function SignInScreen() {
           Create account
         </Text>
       </Link>
+      <AuthLegalFooter mode="sign-in" />
     </View>
   );
 }

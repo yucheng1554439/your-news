@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "verify:isolation": "node --require ./scripts/shim-server-only.cjs ./node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.json scripts/verify-multi-user-isolation.ts"
+    "verify:isolation": "node --require ./scripts/shim-server-only.cjs ./node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.json scripts/verify-multi-user-isolation.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run tests/integration"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -33,6 +37,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }
